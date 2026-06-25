@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import multer from 'multer';
 import redis from '../services/redis';
+import { GeoReplyWith } from 'redis';
 import { authMiddleware } from '../middleware/auth';
 import { sendPushToNearbyUsers } from '../services/onesignal';
 import { uploadToBunny, isAllowedMimeType } from '../services/bunny';
@@ -220,6 +221,35 @@ router.post(
     return res.status(201).json({ message: 'Report submitted', report });
   }
 );
+
+// ─── GET /reports/map — all active reports with coordinates for map rendering ──
+router.get('/map', authMiddleware, async (req: Request, res: Response) => {
+  const type = req.query.type as string | undefined;
+
+  const setKey = type ? `reports:type:${type}` : 'reports:all';
+  const ids    = (await redis.zRange(setKey, 0, -1, { REV: true })) as string[];
+
+  if (!ids.length) return res.json({ reports: [] });
+
+  const raws = await Promise.all(ids.map((id) => redis.get(`report:${id}`)));
+
+  const reports = raws
+    .filter(Boolean)
+    .map((r) => JSON.parse(r!))
+    .filter((r) => r.is_active)
+    .map((r) => ({
+      id:          r.id,
+      type:        r.type,
+      category:    r.category ?? null,
+      name:        r.name,
+      coordinates: r.location.coordinates,  // [lng, lat] ready for map pin
+      location:    r.location,
+      created_at:  r.created_at,
+      persistent:  r.persistent ?? false,
+    }));
+
+  return res.json({ reports, total: reports.length });
+});
 
 // ─── GET /reports ─────────────────────────────────────────────────────────────
 router.get('/', authMiddleware, async (req: Request, res: Response) => {

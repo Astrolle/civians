@@ -2,10 +2,14 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import redis from '../services/redis';
+import { GeoReplyWith } from 'redis';
 import { authMiddleware } from '../middleware/auth';
 import { sendPushToNearbyUsers } from '../services/onesignal';
 
 const router = Router();
+
+const GEO_KEY_OFFICIAL   = 'notifications:official:geo';
+const GEO_KEY_UNOFFICIAL = 'notifications:unofficial:geo';
 
 const TTL_OFFICIAL   = 60 * 60 * 24 * 7;  // 7 días
 const TTL_UNOFFICIAL = 60 * 60 * 24 * 3;  // 3 días
@@ -75,6 +79,7 @@ router.post('/official', authMiddleware, async (req: Request, res: Response) => 
   };
 
   await redis.set(`notification:${id}`, JSON.stringify(notification), { EX: TTL_OFFICIAL });
+  await redis.geoAdd(GEO_KEY_OFFICIAL, { longitude: notification.location.coordinates[0] as number, latitude: notification.location.coordinates[1] as number, member: id });
   await redis.zAdd('notifications:official',                              { score, value: id });
   await redis.zAdd(`notifications:official:type:${notification.event_type}`, { score, value: id });
   await redis.zAdd(`notifications:official:severity:${notification.severity}`, { score, value: id });
@@ -142,6 +147,7 @@ router.post('/unofficial', authMiddleware, async (req: Request, res: Response) =
   };
 
   await redis.set(`notification:${id}`, JSON.stringify(notification), { EX: TTL_UNOFFICIAL });
+  await redis.geoAdd(GEO_KEY_UNOFFICIAL, { longitude: notification.location.coordinates[0] as number, latitude: notification.location.coordinates[1] as number, member: id });
   await redis.zAdd('notifications:unofficial',                                { score, value: id });
   await redis.zAdd(`notifications:unofficial:type:${notification.event_type}`, { score, value: id });
   await redis.zAdd(`notifications:unofficial:severity:${notification.severity}`, { score, value: id });
@@ -185,6 +191,115 @@ router.get('/unofficial', authMiddleware, async (req: Request, res: Response) =>
 });
 
 // ─────────────────────────────────────────
+// GET /notifications/official/nearby — sorted by proximity with distance
+router.get('/official/nearby', authMiddleware, async (req: Request, res: Response) => {
+  const lat = parseFloat(req.query.latitude  as string);
+  const lng = parseFloat(req.query.longitude as string);
+  const radius = parseFloat(req.query.radius as string) || 5;
+
+  if (isNaN(lat) || isNaN(lng)) {
+    return res.status(400).json({ error: 'latitude and longitude are required.', example: '/notifications/official/nearby?latitude=6.2442&longitude=-75.5812' });
+  }
+
+  const results = await redis.geoSearchWith(
+    GEO_KEY_OFFICIAL,
+    { longitude: lng, latitude: lat },
+    { radius, unit: 'km' },
+    [GeoReplyWith.DISTANCE],
+    { COUNT: 100, SORT: 'ASC' }
+  );
+
+  if (!results.length) return res.json({ notifications: [], total: 0, radius_km: radius });
+
+  const distanceMap = new Map<string, number>();
+  results.forEach((r) => distanceMap.set(r.member, parseFloat((r.distance ?? '0').toString())));
+
+  const raws = await Promise.all(results.map((r) => redis.get(`notification:${r.member}`)));
+  const notifications = await Promise.all(
+    raws.filter(Boolean).map((n) => JSON.parse(n!)).filter((n) => n.is_active)
+      .map(async (n) => {
+        const confirmations   = await redis.sCard(`notification:${n.id}:confirms`);
+        const confirmed_by_me = await redis.sIsMember(`notification:${n.id}:confirms`, (req as any).deviceId);
+        return { ...n, confirmations, confirmed_by_me, dist_km: distanceMap.get(n.id) ?? null };
+      })
+  );
+
+  return res.json({ notifications, total: notifications.length, radius_km: radius });
+});
+
+// GET /notifications/unofficial/nearby — sorted by proximity with distance
+router.get('/unofficial/nearby', authMiddleware, async (req: Request, res: Response) => {
+  const lat = parseFloat(req.query.latitude  as string);
+  const lng = parseFloat(req.query.longitude as string);
+  const radius = parseFloat(req.query.radius as string) || 5;
+
+  if (isNaN(lat) || isNaN(lng)) {
+    return res.status(400).json({ error: 'latitude and longitude are required.', example: '/notifications/unofficial/nearby?latitude=6.2442&longitude=-75.5812' });
+  }
+
+  const results = await redis.geoSearchWith(
+    GEO_KEY_UNOFFICIAL,
+    { longitude: lng, latitude: lat },
+    { radius, unit: 'km' },
+    [GeoReplyWith.DISTANCE],
+    { COUNT: 100, SORT: 'ASC' }
+  );
+
+  if (!results.length) return res.json({ notifications: [], total: 0, radius_km: radius });
+
+  const distanceMap = new Map<string, number>();
+  results.forEach((r) => distanceMap.set(r.member, parseFloat((r.distance ?? '0').toString())));
+
+  const raws = await Promise.all(results.map((r) => redis.get(`notification:${r.member}`)));
+  const notifications = await Promise.all(
+    raws.filter(Boolean).map((n) => JSON.parse(n!)).filter((n) => n.is_active)
+      .map(async (n) => {
+        const confirmations   = await redis.sCard(`notification:${n.id}:confirms`);
+        const confirmed_by_me = await redis.sIsMember(`notification:${n.id}:confirms`, (req as any).deviceId);
+        return { ...n, confirmations, confirmed_by_me, dist_km: distanceMap.get(n.id) ?? null };
+      })
+  );
+
+  return res.json({ notifications, total: notifications.length, radius_km: radius });
+});
+
+// GET /notifications/map — all active notifications with coordinates for map rendering
+router.get('/map', authMiddleware, async (req: Request, res: Response) => {
+  const kind = req.query.kind as string | undefined; // 'official' | 'unofficial' | undefined (both)
+
+  const sets: string[] = [];
+  if (!kind || kind === 'official')   sets.push('notifications:official');
+  if (!kind || kind === 'unofficial') sets.push('notifications:unofficial');
+
+  const allIds = new Set<string>();
+  for (const setKey of sets) {
+    const ids = (await redis.zRange(setKey, 0, -1, { REV: true })) as string[];
+    ids.forEach((id) => allIds.add(id));
+  }
+
+  if (!allIds.size) return res.json({ notifications: [] });
+
+  const raws = await Promise.all([...allIds].map((id) => redis.get(`notification:${id}`)));
+
+  const notifications = raws
+    .filter(Boolean)
+    .map((n) => JSON.parse(n!))
+    .filter((n) => n.is_active)
+    .map((n) => ({
+      id:          n.id,
+      kind:        n.kind,
+      title:       n.title,
+      event_type:  n.event_type,
+      severity:    n.severity,
+      coordinates: n.location.coordinates,  // [lng, lat] ready for map pin
+      location:    n.location,
+      created_at:  n.created_at,
+      created_by:  n.created_by,
+    }));
+
+  return res.json({ notifications, total: notifications.length });
+});
+
 // SHARED: single GET, PATCH, DELETE, confirm
 // ─────────────────────────────────────────
 
