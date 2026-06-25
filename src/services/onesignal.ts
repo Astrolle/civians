@@ -11,21 +11,19 @@ interface PushPayload {
 }
 
 /**
- * Find all device_ids within RADIUS_KM of a given coordinate.
- * Uses the Haversine approximation directly in SQL.
- * Only returns devices that have a GPS position set.
+ * Find all device_ids within RADIUS_KM of a given coordinate,
+ * excluding the sender so they don't receive their own notification.
  */
-async function findNearbyDeviceIds(lng: number, lat: number): Promise<string[]> {
+async function findNearbyDeviceIds(lng: number, lat: number, excludeDeviceId: string): Promise<string[]> {
   const db = getReadDB();
 
-  // Haversine in SQL (SQLite compatible)
-  // Distance in km between two points
   const result = await db.execute({
     sql: `
       SELECT device_id
       FROM profiles
       WHERE latitude IS NOT NULL
         AND longitude IS NOT NULL
+        AND device_id != :excludeDeviceId
         AND (
           6371 * 2 * ASIN(SQRT(
             POWER(SIN((RADIANS(latitude)  - RADIANS(:lat)) / 2), 2) +
@@ -34,30 +32,30 @@ async function findNearbyDeviceIds(lng: number, lat: number): Promise<string[]> 
           ))
         ) <= :radius
     `,
-    args: { lat, lng, radius: RADIUS_KM },
+    args: { lat, lng, radius: RADIUS_KM, excludeDeviceId },
   });
 
   return result.rows.map((row) => row.device_id as string);
 }
 
 /**
- * Send a push notification via OneSignal to all users within 5km
- * of the given coordinates.
+ * Send a push notification via OneSignal to all nearby users
+ * within 5km, excluding the sender.
  */
 export async function sendPushToNearbyUsers(
   coordinates: [number, number],  // [lng, lat]
   payload: PushPayload,
+  senderDeviceId: string,
 ): Promise<{ sent: number; onesignal_id?: string }> {
   const [lng, lat] = coordinates;
 
-  const deviceIds = await findNearbyDeviceIds(lng, lat);
+  const deviceIds = await findNearbyDeviceIds(lng, lat, senderDeviceId);
 
   if (deviceIds.length === 0) {
-    console.log(`[OneSignal] No users found within ${RADIUS_KM}km of [${lng}, ${lat}]`);
+    console.log(`[OneSignal] No nearby users found within ${RADIUS_KM}km (excluding sender)`);
     return { sent: 0 };
   }
 
-  // Batch in chunks of 2000 (OneSignal limit per call is 20k but we stay conservative)
   const CHUNK_SIZE = 2000;
   let totalSent = 0;
   let lastOnesignalId: string | undefined;
@@ -67,14 +65,10 @@ export async function sendPushToNearbyUsers(
 
     const body = {
       app_id: process.env.ONESIGNAL_APP_ID!,
-      // Target users by their external_id (= our device_id)
-      include_aliases: {
-        external_id: chunk,
-      },
+      include_aliases: { external_id: chunk },
       target_channel: 'push',
       headings: { en: payload.title },
       contents: { en: payload.body },
-      // Pass full notification data so the app can deep-link
       data: payload.data ?? {},
       priority: 10,
       ios_interruption_level: 'time_sensitive',

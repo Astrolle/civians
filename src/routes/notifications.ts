@@ -84,7 +84,7 @@ router.post('/official', authMiddleware, async (req: Request, res: Response) => 
     title: `🚨 ${notification.title}`,
     body: notification.description,
     data: { notification_id: id, kind: 'official', event_type: notification.event_type },
-  }).catch((err) => console.error('[Push] Official notification push failed:', err));
+  }, (req as any).deviceId).catch((err) => console.error('[Push] Official notification push failed:', err));
 
   return res.status(201).json({ message: 'Official notification created', notification });
 });
@@ -151,7 +151,7 @@ router.post('/unofficial', authMiddleware, async (req: Request, res: Response) =
     title: `⚠️ ${notification.title}`,
     body: notification.description,
     data: { notification_id: id, kind: 'unofficial', event_type: notification.event_type },
-  }).catch((err) => console.error('[Push] Unofficial notification push failed:', err));
+  }, (req as any).deviceId).catch((err) => console.error('[Push] Unofficial notification push failed:', err));
 
   return res.status(201).json({ message: 'Unofficial notification created', notification });
 });
