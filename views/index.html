@@ -457,7 +457,7 @@
       </p>
 
       <div class="buttons">
-        <a class="btn white" href="#download">Descargar para iPhone y Android</a>
+        <a class="btn white" href="#download">Descargar para iOS y Android</a>
         <a class="btn dark" href="#mission">Conocer la misión</a>
       </div>
     </section>
@@ -493,7 +493,7 @@
         <div>
           <div class="eyebrow">Disponible para todos</div>
 
-          <h2>Gratis en Apple y Android.</h2>
+          <h2>Gratis en iOS y Android.</h2>
 
           <p class="lead">
             Civians será una app abierta y gratuita.
@@ -501,17 +501,17 @@
           </p>
 
           <div class="store-buttons">
-            <a class="store" href="https://apps.apple.com/" id="ios-store">
+            <a class="store" href="#" id="ios-store">
               <svg viewBox="0 0 24 24" fill="currentColor">
                 <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.8 15.25 3.53 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.53 4.08zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
               </svg>
               <span>
-                <small>Download on the</small>
-                App Store
+                <small>Disponible</small>
+                iOS (En revisión)
               </span>
             </a>
 
-            <a class="store" href="https://play.google.com/store" id="android-store">
+            <a class="store" href="https://play.google.com/store/apps/details?id=com.astrolle.civians" id="android-store">
               <svg viewBox="0 0 24 24" fill="currentColor">
                 <path d="M3.6 2.2c-.37.2-.6.58-.6 1.04v17.52c0 .46.23.84.6 1.04l10.2-9.8L3.6 2.2zm11.2 10.75l2.65-2.55-11-6.35 8.35 8.9zm2.65.65l-2.65-2.55-8.35 8.9 11-6.35zm1.2-2.25L21.2 9.9c.8-.46.8-1.34 0-1.8l-2.55-1.47-3.1 3.37 3.1 3.35z"/>
               </svg>
@@ -716,6 +716,17 @@
             <img src="https://www.google.com/s2/favicons?domain=astrolle.com&sz=64" alt="Astrolle logo" />
             <span>Astrolle</span>
           </div>
+
+          <div class="tech-logo">
+            <img src="https://www.google.com/s2/favicons?domain=redis.io&sz=64" alt="Redis logo" />
+            <span>Redis</span>
+          </div>
+
+          <div class="tech-logo">
+            <img src="https://www.google.com/s2/favicons?domain=bunny.net&sz=64" alt="Bunny CDN logo" />
+            <span>Bunny CDN</span>
+          </div>
+
         </div>
       </div>
     </section>
@@ -759,8 +770,8 @@
   </div>
 
   <script>
-    const APP_STORE_URL = "https://apps.apple.com/";
-    const PLAY_STORE_URL = "https://play.google.com/store";
+    const APP_STORE_URL = "#";
+    const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.astrolle.civians";
 
     const userAgent = navigator.userAgent || navigator.vendor || window.opera;
     const mobileDownloadLink = document.getElementById("mobile-download-link");
@@ -770,10 +781,10 @@
       mobileDownloadLink.textContent = "Descargar en Google Play";
     } else if (/iPad|iPhone|iPod/.test(userAgent) && !window.MSStream) {
       mobileDownloadLink.href = APP_STORE_URL;
-      mobileDownloadLink.textContent = "Descargar en App Store";
+      mobileDownloadLink.textContent = "iOS (En revisión)";
     } else {
       mobileDownloadLink.href = "#download";
-      mobileDownloadLink.textContent = "Descargar para iPhone y Android";
+      mobileDownloadLink.textContent = "Descargar para iOS y Android";
     }
   </script>
 
