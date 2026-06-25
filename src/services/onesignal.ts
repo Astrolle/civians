@@ -11,37 +11,56 @@ interface PushPayload {
 }
 
 /**
- * Find all device_ids within RADIUS_KM of a given coordinate,
- * excluding the sender so they don't receive their own notification.
+ * Find device_ids within RADIUS_KM of [lng, lat], excluding the sender.
+ * Logs each candidate with their computed distance for debugging.
  */
-async function findNearbyDeviceIds(lng: number, lat: number, excludeDeviceId: string): Promise<string[]> {
+async function findNearbyDeviceIds(
+  lng: number,
+  lat: number,
+  excludeDeviceId: string,
+): Promise<string[]> {
   const db = getReadDB();
 
+  // Fetch candidates that have GPS set and are not the sender
+  // Compute distance in the SELECT so we can log it
   const result = await db.execute({
     sql: `
-      SELECT device_id
-      FROM profiles
-      WHERE latitude IS NOT NULL
-        AND longitude IS NOT NULL
-        AND device_id != :excludeDeviceId
-        AND (
+      SELECT
+        device_id,
+        latitude,
+        longitude,
+        ROUND(
           6371 * 2 * ASIN(SQRT(
             POWER(SIN((RADIANS(latitude)  - RADIANS(:lat)) / 2), 2) +
             COS(RADIANS(:lat)) * COS(RADIANS(latitude)) *
             POWER(SIN((RADIANS(longitude) - RADIANS(:lng)) / 2), 2)
-          ))
-        ) <= :radius
+          )), 3
+        ) AS dist_km
+      FROM profiles
+      WHERE latitude  IS NOT NULL
+        AND longitude IS NOT NULL
+        AND device_id != :excludeDeviceId
     `,
-    args: { lat, lng, radius: RADIUS_KM, excludeDeviceId },
+    args: { lat, lng, excludeDeviceId },
   });
 
-  return result.rows.map((row) => row.device_id as string);
+  console.log(`[OneSignal] Push origin: [lng=${lng}, lat=${lat}], excluding: ${excludeDeviceId}`);
+  console.log(`[OneSignal] Candidates found: ${result.rows.length}`);
+
+  const nearby: string[] = [];
+
+  for (const row of result.rows) {
+    const dist = Number(row.dist_km);
+    console.log(`[OneSignal]   device=${row.device_id} dist=${dist}km`);
+    if (dist <= RADIUS_KM) {
+      nearby.push(row.device_id as string);
+    }
+  }
+
+  console.log(`[OneSignal] Within ${RADIUS_KM}km: ${nearby.length} user(s)`);
+  return nearby;
 }
 
-/**
- * Send a push notification via OneSignal to all nearby users
- * within 5km, excluding the sender.
- */
 export async function sendPushToNearbyUsers(
   coordinates: [number, number],  // [lng, lat]
   payload: PushPayload,
@@ -49,10 +68,16 @@ export async function sendPushToNearbyUsers(
 ): Promise<{ sent: number; onesignal_id?: string }> {
   const [lng, lat] = coordinates;
 
+  // Guard: coordinates must be valid numbers
+  if (isNaN(lng) || isNaN(lat)) {
+    console.error('[OneSignal] Invalid coordinates — push aborted', { lng, lat });
+    return { sent: 0 };
+  }
+
   const deviceIds = await findNearbyDeviceIds(lng, lat, senderDeviceId);
 
   if (deviceIds.length === 0) {
-    console.log(`[OneSignal] No nearby users found within ${RADIUS_KM}km (excluding sender)`);
+    console.log(`[OneSignal] No users within ${RADIUS_KM}km to notify.`);
     return { sent: 0 };
   }
 
@@ -85,9 +110,9 @@ export async function sendPushToNearbyUsers(
       if (response.data?.id) {
         totalSent += chunk.length;
         lastOnesignalId = response.data.id;
-        console.log(`[OneSignal] Sent to ${chunk.length} users (batch ${Math.floor(i / CHUNK_SIZE) + 1}), id=${response.data.id}`);
+        console.log(`[OneSignal] Sent to ${chunk.length} user(s), onesignal_id=${response.data.id}`);
       } else {
-        console.warn('[OneSignal] Batch returned no id:', response.data);
+        console.warn('[OneSignal] Unexpected response:', response.data);
       }
     } catch (err: any) {
       console.error('[OneSignal] Push failed:', err?.response?.data || err.message);

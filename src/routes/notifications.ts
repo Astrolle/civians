@@ -96,30 +96,54 @@ router.post('/official', authMiddleware, async (req: Request, res: Response) => 
 
 // GET /notifications/official
 router.get('/official', authMiddleware, async (req: Request, res: Response) => {
-  const limit      = parseInt(req.query.limit  as string) || 20;
-  const offset     = parseInt(req.query.offset as string) || 0;
+  const lat        = parseFloat(req.query.latitude  as string);
+  const lng        = parseFloat(req.query.longitude as string);
+  const radius     = parseFloat(req.query.radius    as string) || 50; // city radius default 50km
   const event_type = req.query.event_type as string | undefined;
   const severity   = req.query.severity   as string | undefined;
 
-  let setKey = 'notifications:official';
-  if (event_type) setKey = `notifications:official:type:${event_type}`;
-  if (severity)   setKey = `notifications:official:severity:${severity}`;
+  if (isNaN(lat) || isNaN(lng)) {
+    return res.status(400).json({
+      error: 'latitude and longitude are required.',
+      example: '/notifications/official?latitude=6.2442&longitude=-75.5812',
+    });
+  }
 
-  const ids   = (await redis.zRange(setKey, offset, offset + limit - 1, { REV: true })) as string[];
-  const total = await redis.zCard(setKey);
-
-  if (!ids.length) return res.json({ notifications: [], total: 0 });
-
-  const raws = await Promise.all(ids.map((id) => redis.get(`notification:${id}`)));
-  const notifications = await Promise.all(
-    raws
-      .filter(Boolean)
-      .map((n) => JSON.parse(n!))
-      .filter((n) => n.is_active)
-      .map((n) => enrichWithConfirmations(n, (req as any).deviceId))
+  // Get all IDs within city radius
+  const nearbyResults = await redis.geoSearchWith(
+    GEO_KEY_OFFICIAL,
+    { longitude: lng, latitude: lat },
+    { radius, unit: 'km' },
+    [GeoReplyWith.DISTANCE],
+    { COUNT: 200, SORT: 'ASC' }
   );
 
-  return res.json({ notifications, total, limit, offset });
+  if (!nearbyResults.length) return res.json({ notifications: [], total: 0, radius_km: radius });
+
+  const distanceMap = new Map<string, number>();
+  nearbyResults.forEach((r) => distanceMap.set(r.member, parseFloat((r.distance ?? '0').toString())));
+
+  const raws = await Promise.all(nearbyResults.map((r) => redis.get(`notification:${r.member}`)));
+
+  let notifications = raws
+    .filter(Boolean)
+    .map((n) => JSON.parse(n!))
+    .filter((n) => n.is_active);
+
+  if (event_type) notifications = notifications.filter((n) => n.event_type === event_type);
+  if (severity)   notifications = notifications.filter((n) => n.severity   === severity);
+
+  const enriched = await Promise.all(
+    notifications.map(async (n) => {
+      const withConfirm = await enrichWithConfirmations(n, (req as any).deviceId);
+      return { ...withConfirm, dist_km: distanceMap.get(n.id) ?? null };
+    })
+  );
+
+  // Sort by confirmations DESC
+  enriched.sort((a, b) => b.confirmations - a.confirmations);
+
+  return res.json({ notifications: enriched, total: enriched.length, radius_km: radius });
 });
 
 // ─────────────────────────────────────────
@@ -164,30 +188,52 @@ router.post('/unofficial', authMiddleware, async (req: Request, res: Response) =
 
 // GET /notifications/unofficial
 router.get('/unofficial', authMiddleware, async (req: Request, res: Response) => {
-  const limit      = parseInt(req.query.limit  as string) || 20;
-  const offset     = parseInt(req.query.offset as string) || 0;
+  const lat        = parseFloat(req.query.latitude  as string);
+  const lng        = parseFloat(req.query.longitude as string);
+  const radius     = parseFloat(req.query.radius    as string) || 50; // city radius default 50km
   const event_type = req.query.event_type as string | undefined;
   const severity   = req.query.severity   as string | undefined;
 
-  let setKey = 'notifications:unofficial';
-  if (event_type) setKey = `notifications:unofficial:type:${event_type}`;
-  if (severity)   setKey = `notifications:unofficial:severity:${severity}`;
+  if (isNaN(lat) || isNaN(lng)) {
+    return res.status(400).json({
+      error: 'latitude and longitude are required.',
+      example: '/notifications/unofficial?latitude=6.2442&longitude=-75.5812',
+    });
+  }
 
-  const ids   = (await redis.zRange(setKey, offset, offset + limit - 1, { REV: true })) as string[];
-  const total = await redis.zCard(setKey);
-
-  if (!ids.length) return res.json({ notifications: [], total: 0 });
-
-  const raws = await Promise.all(ids.map((id) => redis.get(`notification:${id}`)));
-  const notifications = await Promise.all(
-    raws
-      .filter(Boolean)
-      .map((n) => JSON.parse(n!))
-      .filter((n) => n.is_active)
-      .map((n) => enrichWithConfirmations(n, (req as any).deviceId))
+  const nearbyResults = await redis.geoSearchWith(
+    GEO_KEY_UNOFFICIAL,
+    { longitude: lng, latitude: lat },
+    { radius, unit: 'km' },
+    [GeoReplyWith.DISTANCE],
+    { COUNT: 200, SORT: 'ASC' }
   );
 
-  return res.json({ notifications, total, limit, offset });
+  if (!nearbyResults.length) return res.json({ notifications: [], total: 0, radius_km: radius });
+
+  const distanceMap = new Map<string, number>();
+  nearbyResults.forEach((r) => distanceMap.set(r.member, parseFloat((r.distance ?? '0').toString())));
+
+  const raws = await Promise.all(nearbyResults.map((r) => redis.get(`notification:${r.member}`)));
+
+  let notifications = raws
+    .filter(Boolean)
+    .map((n) => JSON.parse(n!))
+    .filter((n) => n.is_active);
+
+  if (event_type) notifications = notifications.filter((n) => n.event_type === event_type);
+  if (severity)   notifications = notifications.filter((n) => n.severity   === severity);
+
+  const enriched = await Promise.all(
+    notifications.map(async (n) => {
+      const withConfirm = await enrichWithConfirmations(n, (req as any).deviceId);
+      return { ...withConfirm, dist_km: distanceMap.get(n.id) ?? null };
+    })
+  );
+
+  enriched.sort((a, b) => b.confirmations - a.confirmations);
+
+  return res.json({ notifications: enriched, total: enriched.length, radius_km: radius });
 });
 
 // ─────────────────────────────────────────
