@@ -9,7 +9,7 @@ COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build
 
-# ─── Production image ─────────────────────────────────────────────────────────
+# ─── Production image  to product  ─────────────────────────────────────────────────────────
 FROM node:20-alpine AS production
 
 WORKDIR /app
