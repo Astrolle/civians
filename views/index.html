@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Civians — Ayuda en emergencias</title>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #050505;
+      color: #fff;
+      padding-bottom: 0;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    .container {
+      width: min(1180px, 90%);
+      margin: auto;
+    }
+
+    header {
+      height: 88px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo {
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: -1px;
+    }
+
+    .header-links {
+      display: flex;
+      gap: 24px;
+      align-items: center;
+      color: #9b9b9b;
+      font-size: 14px;
+    }
+
+    .header-links a:hover { color: #fff; }
+
+    .hero {
+      min-height: calc(100vh - 88px);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 60px 0 120px;
+    }
+
+    .eyebrow {
+      color: #1463ff;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      margin-bottom: 28px;
+    }
+
+    h1 {
+      max-width: 1050px;
+      font-size: clamp(62px, 10vw, 138px);
+      line-height: .88;
+      letter-spacing: -7px;
+      margin-bottom: 36px;
+    }
+
+    h2 {
+      font-size: clamp(44px, 6vw, 88px);
+      line-height: .95;
+      letter-spacing: -4px;
+      max-width: 950px;
+      margin-bottom: 52px;
+    }
+
+    .blue { color: #1463ff; }
+
+    .hero p, .lead {
+      max-width: 720px;
+      color: #c8c8c8;
+      font-size: 22px;
+      line-height: 1.45;
+      margin-bottom: 44px;
+    }
+
+    .white .lead { color: #4d4d4d; }
+
+    .buttons {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      padding: 15px 24px;
+      border-radius: 4px;
+      font-weight: 700;
+      font-size: 14px;
+      border: 1px solid #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .btn.white {
+      background: #fff;
+      color: #000;
+    }
+
+    .btn.dark {
+      background: transparent;
+      color: #fff;
+    }
+
+    .section {
+      padding: 100px 0;
+      border-top: 1px solid #202020;
+    }
+
+    .white {
+      background: #fff;
+      color: #050505;
+      border-top: none;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 40px;
+    }
+
+    .item {
+      border-left: 1px solid #dcdcdc;
+      padding-left: 28px;
+    }
+
+    .dark-item {
+      border-left: 1px solid #2b2b2b;
+    }
+
+    .item span {
+      display: block;
+      color: #1463ff;
+      font-weight: 800;
+      margin-bottom: 24px;
+    }
+
+    .item h3 {
+      font-size: 28px;
+      letter-spacing: -1px;
+      margin-bottom: 14px;
+    }
+
+    .item p {
+      color: #666;
+      font-size: 17px;
+      line-height: 1.5;
+    }
+
+    .dark-item p {
+      color: #bcbcbc;
+    }
+
+    .download {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 60px;
+      align-items: center;
+    }
+
+    .phone {
+      background: #0c0c0c;
+      border: 1px solid #2b2b2b;
+      border-radius: 32px;
+      padding: 28px;
+      max-width: 360px;
+      margin-left: auto;
+    }
+
+    .phone-screen {
+      background: #fff;
+      color: #050505;
+      border-radius: 24px;
+      padding: 28px;
+      min-height: 520px;
+    }
+
+    .alert {
+      background: #f4f4f4;
+      border-radius: 18px;
+      padding: 20px;
+      margin-top: 24px;
+    }
+
+    .alert small {
+      color: #1463ff;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .alert h3 {
+      margin: 12px 0;
+      font-size: 24px;
+    }
+
+    .alert p {
+      color: #555;
+      line-height: 1.4;
+    }
+
+    .store-buttons {
+      display: flex;
+      gap: 14px;
+      margin-top: 34px;
+      flex-wrap: wrap;
+    }
+
+    .store {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      background: #050505;
+      color: #fff;
+      padding: 16px 22px;
+      border-radius: 8px;
+      font-weight: 700;
+    }
+
+    .store svg {
+      width: 24px;
+      height: 24px;
+    }
+
+    .store small {
+      display: block;
+      color: #aaa;
+      font-size: 11px;
+      font-weight: 500;
+      margin-bottom: 3px;
+    }
+
+    .privacy-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 70px;
+      margin-top: 70px;
+    }
+
+    .privacy-list h3 {
+      margin-bottom: 25px;
+      font-size: 28px;
+    }
+
+    .privacy-list ul {
+      list-style: none;
+      line-height: 2.1;
+      color: #555;
+      font-size: 18px;
+    }
+
+    .privacy-card {
+      margin-top: 80px;
+      padding: 40px;
+      border-radius: 18px;
+      background: #fafafa;
+      border: 1px solid #e5e5e5;
+    }
+
+    .privacy-card h3 {
+      margin-bottom: 20px;
+      font-size: 28px;
+    }
+
+    .privacy-card p {
+      color: #555;
+      line-height: 1.9;
+      font-size: 17px;
+      margin-top: 20px;
+    }
+
+    .privacy-card p:first-of-type { margin-top: 0; }
+
+    .privacy-card a {
+      color: #1463ff;
+      font-weight: 600;
+    }
+
+    .built-with {
+      padding: 60px 0;
+      border-top: 1px solid #202020;
+      text-align: center;
+    }
+
+    .built-with p {
+      color: #8f8f8f;
+      font-size: 15px;
+      margin-bottom: 28px;
+    }
+
+    .logos {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 42px;
+      flex-wrap: wrap;
+    }
+
+    .tech-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #cfcfcf;
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .tech-logo img {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+    }
+
+    footer {
+      padding: 80px 0;
+      border-top: 1px solid #202020;
+    }
+
+    .footer-content {
+      display: flex;
+      justify-content: space-between;
+      gap: 40px;
+      align-items: center;
+    }
+
+    footer h2 {
+      margin-bottom: 10px;
+      max-width: 760px;
+    }
+
+    .small {
+      color: #888;
+      margin-top: 40px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .small a { color: #fff; }
+
+    .mobile-download-bar {
+      display: none;
+    }
+
+    @media (max-width: 900px) {
+      body { padding-bottom: 82px; }
+
+      h1 {
+        letter-spacing: -4px;
+      }
+
+      .grid-3,
+      .download,
+      .privacy-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .phone { margin: 0; }
+
+      .footer-content {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .mobile-download-bar {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 999;
+        display: flex;
+        justify-content: center;
+        padding: 14px 18px;
+        background: rgba(5, 5, 5, .92);
+        backdrop-filter: blur(18px);
+        border-top: 1px solid #222;
+      }
+
+      .mobile-download-bar a {
+        width: 100%;
+        max-width: 420px;
+        text-align: center;
+        background: #fff;
+        color: #000;
+        padding: 15px 20px;
+        border-radius: 8px;
+        font-weight: 800;
+      }
+    }
+
+    @media (max-width: 560px) {
+      header { height: 76px; }
+
+      .logo { font-size: 24px; }
+
+      .header-links {
+        gap: 12px;
+        font-size: 11px;
+      }
+
+      h1 {
+        font-size: 56px;
+        letter-spacing: -3px;
+      }
+
+      h2 {
+        letter-spacing: -2px;
+      }
+
+      .section {
+        padding: 80px 0;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <header class="container">
+    <div class="logo">//Civians</div>
+
+    <div class="header-links">
+      <a href="#privacy">Política de privacidad</a>
+      <a href="https://astrolle.com" target="_blank">by Astrolle ↗</a>
+    </div>
+  </header>
+
+  <main>
+
+    <section class="hero container">
+      <div class="eyebrow">Creada por Astrolle para ayudar en emergencias</div>
+
+      <h1>
+        Cuando hay una emergencia,<br />
+        la ayuda debe llegar <span class="blue">más rápido.</span>
+      </h1>
+
+      <p>
+        Civians nace como nuestra forma de ayudar al mundo:
+        una app gratuita para reportar emergencias, compartir ubicación
+        y conectar personas con información confiable.
+      </p>
+
+      <div class="buttons">
+        <a class="btn white" href="#download">Descargar para iPhone y Android</a>
+        <a class="btn dark" href="#mission">Conocer la misión</a>
+      </div>
+    </section>
+
+    <section class="section white">
+      <div class="container">
+        <h2>Simple para quien necesita ayuda.</h2>
+
+        <div class="grid-3">
+          <div class="item">
+            <span>01</span>
+            <h3>Reporta</h3>
+            <p>Comparte una emergencia con ubicación, fotos o video.</p>
+          </div>
+
+          <div class="item">
+            <span>02</span>
+            <h3>Conecta</h3>
+            <p>La información llega a personas y equipos que pueden actuar.</p>
+          </div>
+
+          <div class="item">
+            <span>03</span>
+            <h3>Ayuda</h3>
+            <p>Organiza la respuesta con datos claros y trazabilidad.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="download">
+      <div class="container download">
+        <div>
+          <div class="eyebrow">Disponible para todos</div>
+
+          <h2>Gratis en Apple y Android.</h2>
+
+          <p class="lead">
+            Civians será una app abierta y gratuita.
+            Porque en momentos difíciles, la tecnología debe estar al servicio de las personas.
+          </p>
+
+          <div class="store-buttons">
+            <a class="store" href="https://apps.apple.com/" id="ios-store">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.8 15.25 3.53 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.53 4.08zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
+              </svg>
+              <span>
+                <small>Download on the</small>
+                App Store
+              </span>
+            </a>
+
+            <a class="store" href="https://play.google.com/store" id="android-store">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M3.6 2.2c-.37.2-.6.58-.6 1.04v17.52c0 .46.23.84.6 1.04l10.2-9.8L3.6 2.2zm11.2 10.75l2.65-2.55-11-6.35 8.35 8.9zm2.65.65l-2.65-2.55-8.35 8.9 11-6.35zm1.2-2.25L21.2 9.9c.8-.46.8-1.34 0-1.8l-2.55-1.47-3.1 3.37 3.1 3.35z"/>
+              </svg>
+              <span>
+                <small>Get it on</small>
+                Google Play
+              </span>
+            </a>
+          </div>
+
+          <p class="small">
+            Siempre gratuita. Sin anuncios. Diseñada para ayudar.
+          </p>
+        </div>
+
+        <div class="phone">
+          <div class="phone-screen">
+            <small style="color:#1463ff; font-weight:800;">CIVIANS</small>
+
+            <div class="alert">
+              <small>Reporte activo</small>
+              <h3>Emergencia cercana</h3>
+              <p>Ubicación compartida. Evidencia adjunta. Ayuda solicitada.</p>
+            </div>
+
+            <div class="alert">
+              <small>Estado</small>
+              <h3>En revisión</h3>
+              <p>La información fue enviada correctamente.</p>
+            </div>
+
+            <div class="alert">
+              <small>Comunidad</small>
+              <h3>Personas conectadas</h3>
+              <p>La respuesta empieza con información confiable.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section white">
+      <div class="container">
+        <h2>Hecha para momentos donde cada segundo importa.</h2>
+
+        <div class="grid-3">
+          <div class="item">
+            <span>●</span>
+            <h3>Ubicación</h3>
+            <p>Comparte dónde ocurre la emergencia.</p>
+          </div>
+
+          <div class="item">
+            <span>▣</span>
+            <h3>Evidencia</h3>
+            <p>Agrega fotos y videos al reporte.</p>
+          </div>
+
+          <div class="item">
+            <span>↗</span>
+            <h3>Coordinación</h3>
+            <p>Ayuda a ordenar la información para responder mejor.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="mission">
+      <div class="container">
+        <div class="eyebrow">Nuestra misión</div>
+
+        <h2>Nadie debería enfrentar una emergencia solo.</h2>
+
+        <p class="lead">
+          Creemos que nadie debería enfrentar una emergencia solo.
+          Por eso creamos una plataforma gratuita que conecta personas,
+          comunidades y organizaciones para compartir información confiable
+          y facilitar una respuesta más rápida cuando más importa.
+        </p>
+      </div>
+    </section>
+
+    <section class="section white" id="privacy">
+      <div class="container">
+        <div class="eyebrow">Privacidad</div>
+
+        <h2>
+          Tu información se utiliza únicamente
+          para responder mejor ante una emergencia.
+        </h2>
+
+        <p class="lead">
+          En <strong>Civians</strong> creemos que la confianza es tan importante
+          como la tecnología. Solo recopilamos la información necesaria para
+          identificar una emergencia, facilitar la coordinación y ayudar a que
+          las personas u organizaciones autorizadas puedan responder de forma
+          más rápida y eficiente.
+        </p>
+
+        <div class="privacy-grid">
+          <div class="privacy-list">
+            <h3>Información que recopilamos</h3>
+
+            <ul>
+              <li>✓ Nombre</li>
+              <li>✓ Número de teléfono</li>
+              <li>✓ Identificador único del dispositivo (Device ID)</li>
+              <li>✓ Ubicación del dispositivo (GPS)</li>
+              <li>✓ Fotografías y videos capturados desde la cámara</li>
+            </ul>
+          </div>
+
+          <div class="privacy-list">
+            <h3>Cómo utilizamos esta información</h3>
+
+            <ul>
+              <li>✓ Identificar rápidamente quién solicita ayuda.</li>
+              <li>✓ Ubicar el lugar donde ocurre la emergencia.</li>
+              <li>✓ Compartir evidencia del incidente con equipos autorizados.</li>
+              <li>✓ Evitar reportes duplicados o fraudulentos.</li>
+              <li>✓ Mejorar la coordinación y el tiempo de respuesta.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="privacy-card">
+          <h3>Nuestro compromiso con tu privacidad</h3>
+
+          <p>
+            Civians nunca venderá tu información personal ni la utilizará con fines
+            publicitarios. La información recopilada se utiliza exclusivamente para
+            el funcionamiento de la plataforma y para facilitar la atención y
+            coordinación de emergencias.
+          </p>
+
+          <p>
+            Civians es un proyecto desarrollado por
+            <a href="https://astrolle.com" target="_blank">Astrolle Inc.</a>,
+            con sede en <strong>1000 Brickell Avenue, Miami, Florida, Estados Unidos</strong>.
+          </p>
+
+          <p>
+            Si tienes preguntas sobre esta política de privacidad, el tratamiento
+            de tus datos personales o deseas ejercer alguno de tus derechos
+            relacionados con la protección de datos, puedes comunicarte con
+            nuestro equipo legal escribiendo a
+            <a href="mailto:legal@astrolle.com">legal@astrolle.com</a>.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="eyebrow">Nuestra forma de ayudar</div>
+
+        <h2>Creemos que el software también puede cuidar.</h2>
+
+        <div class="grid-3">
+          <div class="item dark-item">
+            <span>01</span>
+            <h3>Humano</h3>
+            <p>Diseñado para personas reales en momentos difíciles.</p>
+          </div>
+
+          <div class="item dark-item">
+            <span>02</span>
+            <h3>Confiable</h3>
+            <p>Información clara para reducir ruido y confusión.</p>
+          </div>
+
+          <div class="item dark-item">
+            <span>03</span>
+            <h3>Abierto</h3>
+            <p>Una app gratuita para servir, conectar y ayudar.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="built-with">
+      <div class="container">
+        <p>Designed and built with</p>
+
+        <div class="logos">
+          <div class="tech-logo">
+            <img src="https://www.google.com/s2/favicons?domain=rork.com&sz=64" alt="Rork logo" />
+            <span>Rork</span>
+          </div>
+
+          <div class="tech-logo">
+            <img src="https://www.google.com/s2/favicons?domain=claude.ai&sz=64" alt="Claude logo" />
+            <span>Claude</span>
+          </div>
+
+          <div class="tech-logo">
+            <img src="https://www.google.com/s2/favicons?domain=chatgpt.com&sz=64" alt="ChatGPT logo" />
+            <span>ChatGPT</span>
+          </div>
+
+          <div class="tech-logo">
+            <img src="https://www.google.com/s2/favicons?domain=astrolle.com&sz=64" alt="Astrolle logo" />
+            <span>Astrolle</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <div class="container footer-content">
+      <div>
+        <h2>Ayudar también es construir.</h2>
+
+        <p class="small">
+          © 2026
+          <a href="https://astrolle.com" target="_blank">Astrolle Inc.</a>
+          · 1000 Brickell Avenue, Miami, Florida, USA
+          · <a href="mailto:legal@astrolle.com">legal@astrolle.com</a>
+        </p>
+      </div>
+
+      <div class="buttons">
+        <a class="btn white" href="#download">Descargar</a>
+
+        <a class="btn dark" href="https://astrolle.com" target="_blank">
+          Astrolle ↗
+        </a>
+      </div>
+    </div>
+
+    <div class="container">
+      <p class="small">
+        Civians es una app gratuita creada por Astrolle Inc. para ayudar durante emergencias.
+        Las marcas Rork, Claude, ChatGPT y Astrolle pertenecen a sus respectivos propietarios.
+      </p>
+    </div>
+  </footer>
+
+  <div class="mobile-download-bar">
+    <a href="#download" id="mobile-download-link">
+      Descargar Civians
+    </a>
+  </div>
+
+  <script>
+    const APP_STORE_URL = "https://apps.apple.com/";
+    const PLAY_STORE_URL = "https://play.google.com/store";
+
+    const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+    const mobileDownloadLink = document.getElementById("mobile-download-link");
+
+    if (/android/i.test(userAgent)) {
+      mobileDownloadLink.href = PLAY_STORE_URL;
+      mobileDownloadLink.textContent = "Descargar en Google Play";
+    } else if (/iPad|iPhone|iPod/.test(userAgent) && !window.MSStream) {
+      mobileDownloadLink.href = APP_STORE_URL;
+      mobileDownloadLink.textContent = "Descargar en App Store";
+    } else {
+      mobileDownloadLink.href = "#download";
+      mobileDownloadLink.textContent = "Descargar para iPhone y Android";
+    }
+  </script>
+
+</body>
+</html>

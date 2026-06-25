@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import path from 'path';
 import { connectRedis } from './services/redis';
 import { connectDB } from './services/db';
 import profileRoutes from './routes/profile';
@@ -11,6 +12,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+
+app.get('/', (_, res) => {
+  res.sendFile(path.join(__dirname, '..', 'views', 'index.html'));
+});
 
 app.get('/health', (_, res) => res.json({
   status: 'ok', service: 'civians-api', ts: new Date().toISOString(),
