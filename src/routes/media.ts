@@ -49,7 +49,7 @@ router.post(
 
     // Upload all files in parallel
     const results = await Promise.allSettled(
-      files.map((f) => uploadToBunny(f.buffer, f.mimetype, folder, (req as any).deviceId))
+      files.map((f) => uploadToBunny(f.buffer, f.mimetype, folder, (req as any).deviceId, f.originalname))
     );
 
     const urls: string[]   = [];

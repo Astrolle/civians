@@ -20,7 +20,7 @@ const OFFER_TYPES  = ['ofrezco_refugio', 'ofrezco_ayuda'] as const;
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024, files: 3 },
+  limits: { fileSize: 200 * 1024 * 1024, files: 3 }, // 200MB for videos
 });
 
 export const REPORT_TYPES = [
@@ -172,7 +172,7 @@ router.post(
     let photos: string[] = [];
     if (files.length > 0) {
       const results = await Promise.allSettled(
-        files.map((f) => uploadToBunny(f.buffer, f.mimetype, 'reports', deviceId))
+        files.map((f) => uploadToBunny(f.buffer, f.mimetype, 'reports', deviceId, f.originalname))
       );
       results.forEach((r, i) => {
         if (r.status === 'fulfilled') photos.push(r.value);
@@ -378,7 +378,7 @@ router.patch(
     let photos = report.photos || [];
     if (files.length > 0) {
       const results = await Promise.allSettled(
-        files.map((f) => uploadToBunny(f.buffer, f.mimetype, 'reports', deviceId))
+        files.map((f) => uploadToBunny(f.buffer, f.mimetype, 'reports', deviceId, f.originalname))
       );
       results.forEach((r, i) => {
         if (r.status === 'fulfilled') photos.push(r.value);
