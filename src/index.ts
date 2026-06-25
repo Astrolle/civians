@@ -11,7 +11,17 @@ import mediaRoutes from './routes/media';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json());
+// Only parse JSON for non-multipart requests — multer handles multipart/form-data
+app.use((req, res, next) => {
+  const ct = req.headers['content-type'] || '';
+  if (ct.startsWith('multipart/form-data')) return next();
+  express.json()(req, res, next);
+});
+app.use((req, res, next) => {
+  const ct = req.headers['content-type'] || '';
+  if (ct.startsWith('multipart/form-data')) return next();
+  express.urlencoded({ extended: true })(req, res, next);
+});
 
 app.get('/', (_, res) => {
   res.sendFile(path.join(__dirname, '..', 'views', 'index.html'));
