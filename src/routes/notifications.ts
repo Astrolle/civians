@@ -11,7 +11,7 @@ const router = Router();
 const GEO_KEY_OFFICIAL   = 'notifications:official:geo';
 const GEO_KEY_UNOFFICIAL = 'notifications:unofficial:geo';
 
-const TTL_OFFICIAL   = 60 * 60 * 24 * 7;  // 7 días
+const TTL_OFFICIAL   = 60 * 60 * 24 * 5;  // 5 días
 const TTL_UNOFFICIAL = 60 * 60 * 24 * 3;  // 3 días
 
 // --- Schemas ---
@@ -52,6 +52,15 @@ async function enrichWithConfirmations(notification: any, deviceId: string) {
   const confirmations   = await redis.sCard(`notification:${notification.id}:confirms`);
   const confirmed_by_me = await redis.sIsMember(`notification:${notification.id}:confirms`, deviceId);
   return { ...notification, confirmations, confirmed_by_me };
+}
+
+/**
+ * Score = confirmations * 10 - dist_km
+ * Balances credibility (confirmations) with proximity (dist_km).
+ */
+function rankingScore(confirmations: number, dist_km: number | null): number {
+  const distPenalty = dist_km !== null ? dist_km : 999;
+  return (confirmations * 10) - distPenalty;
 }
 
 // ─────────────────────────────────────────
@@ -268,6 +277,10 @@ router.get('/official/nearby', authMiddleware, async (req: Request, res: Respons
         const confirmed_by_me = await redis.sIsMember(`notification:${n.id}:confirms`, (req as any).deviceId);
         return { ...n, confirmations, confirmed_by_me, dist_km: distanceMap.get(n.id) ?? null };
       })
+  );
+
+  notifications.sort((a: any, b: any) =>
+    rankingScore(b.confirmations, b.dist_km) - rankingScore(a.confirmations, a.dist_km)
   );
 
   return res.json({ notifications, total: notifications.length, radius_km: radius });
