@@ -12,6 +12,11 @@ const router = Router();
 const RADIUS_KM = 5;
 const GEO_KEY   = 'reports:geo';
 
+const TTL_DEFAULT  = 60 * 60 * 24;        // 24h
+const TTL_OFFER    = 60 * 60 * 24 * 15;  // 15 días
+
+const OFFER_TYPES  = ['ofrezco_refugio', 'ofrezco_ayuda'] as const;
+
 const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 50 * 1024 * 1024, files: 3 },
@@ -22,11 +27,29 @@ export const REPORT_TYPES = [
     'busco_a_alguien',
     'necesito_ayuda',
     'ofrezco_refugio',
+    'ofrezco_ayuda',
     'informo_algo',
     'estoy_a_salvo',
 ] as const;
 
 export type ReportType = typeof REPORT_TYPES[number];
+
+export const REPORT_CATEGORIES = [
+    'sismo',
+    'inundacion',
+    'incendio',
+    'deslizamiento',
+    'explosion',
+    'accidente',
+    'acoso',
+    'robo',
+    'secuestro',
+    'conflicto_armado',
+    'protesta',
+    'otro',
+] as const;
+
+export type ReportCategory = typeof REPORT_CATEGORIES[number];
 
 const LocationSchema = z.object({
     coordinates: z.preprocess(
@@ -62,6 +85,30 @@ const AmenitiesSchema = z.object({
     notes:                z.string().max(300).optional(),
 });
 
+export const HELP_SPECIALTIES = [
+    'medico',
+    'psicologo',
+    'abogado',
+    'rescatista',
+    'bombero',
+    'enfermero',
+    'ingeniero_estructural',
+    'fundacion',
+    'voluntario',
+    'otro',
+] as const;
+
+export type HelpSpecialty = typeof HELP_SPECIALTIES[number];
+
+const ProfessionalHelpSchema = z.object({
+    specialty: z.enum(HELP_SPECIALTIES, {
+        errorMap: () => ({ message: `specialty must be one of: ${HELP_SPECIALTIES.join(', ')}` }),
+    }),
+    organization:    z.string().max(150).optional(),
+    available_until: z.string().optional(),
+    notes:           z.string().max(300).optional(),
+});
+
 const BaseReportSchema = z.object({
     type: z.enum(REPORT_TYPES, {
         errorMap: () => ({ message: `type must be one of: ${REPORT_TYPES.join(', ')}` }),
@@ -71,15 +118,32 @@ const BaseReportSchema = z.object({
         (val) => typeof val === 'string' ? JSON.parse(val) : val,
         LocationSchema
     ),
-    contact_phone: z.string().max(20).optional(),
-    amenities:     z.preprocess(
+    contact_phone:     z.string().max(20).optional(),
+    category:          z.enum(REPORT_CATEGORIES).optional(),
+    target_name:       z.string().max(100).optional(),
+    amenities:         z.preprocess(
         (val) => typeof val === 'string' ? JSON.parse(val) : val,
         AmenitiesSchema
     ).optional(),
-    target_name:   z.string().max(100).optional(),
+    professional_help: z.preprocess(
+        (val) => typeof val === 'string' ? JSON.parse(val) : val,
+        ProfessionalHelpSchema
+    ).optional(),
 });
 
-// POST /reports
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function isOffer(type: ReportType): boolean {
+    return (OFFER_TYPES as readonly string[]).includes(type);
+}
+
+async function enrichWithConfirmations(report: any, deviceId: string) {
+    const confirmations   = await redis.sCard(`report:${report.id}:confirms`);
+    const confirmed_by_me = await redis.sIsMember(`report:${report.id}:confirms`, deviceId);
+    return { ...report, confirmations, confirmed_by_me };
+}
+
+// ─── POST /reports ────────────────────────────────────────────────────────────
 router.post(
     '/',
     authMiddleware,
@@ -117,9 +181,9 @@ router.post(
 
         const id    = uuidv4();
         const now   = new Date().toISOString();
-        const score = Date.now();
         const lng   = Number(data.location.coordinates[0]);
         const lat   = Number(data.location.coordinates[1]);
+        const offer = isOffer(data.type);
 
         const report = {
             id,
@@ -129,13 +193,17 @@ router.post(
             name:       profile.name,
             created_at: now,
             is_active:  true,
+            persistent: offer,  // flag so the client knows this lasts 15 days
         };
 
-        await redis.set(`report:${id}`, JSON.stringify(report), { EX: 60 * 60 * 24 });
+        // ofrezco_* → 15 días. Everything else → 24h
+        const ttl = offer ? TTL_OFFER : TTL_DEFAULT;
+        await redis.set(`report:${id}`, JSON.stringify(report), { EX: ttl });
 
-        // Index GPS position for radius search
         await redis.geoAdd(GEO_KEY, { longitude: lng, latitude: lat, member: id });
 
+        // Score starts at timestamp; confirmations will re-score later
+        const score = Date.now();
         await redis.zAdd('reports:all',                { score, value: id });
         await redis.zAdd(`reports:type:${data.type}`,  { score, value: id });
         await redis.zAdd(`reports:device:${deviceId}`, { score, value: id });
@@ -153,7 +221,7 @@ router.post(
     }
 );
 
-// GET /reports — filter within RADIUS_KM of user's position
+// ─── GET /reports ─────────────────────────────────────────────────────────────
 router.get('/', authMiddleware, async (req: Request, res: Response) => {
     const lat  = parseFloat(req.query.latitude  as string);
     const lng  = parseFloat(req.query.longitude as string);
@@ -166,7 +234,6 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
         });
     }
 
-    // GEOSEARCH returns member IDs within radius, sorted by distance ASC
     const nearbyIds = await redis.geoSearch(
         GEO_KEY,
         { longitude: lng, latitude: lat },
@@ -187,10 +254,18 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
 
     if (type) reports = reports.filter((r) => r.type === type);
 
-    return res.json({ reports, total: reports.length, radius_km: RADIUS_KM });
+    // Enrich with confirmations
+    const enriched = await Promise.all(
+        reports.map((r) => enrichWithConfirmations(r, (req as any).deviceId))
+    );
+
+    // Sort by confirmations DESC (highest ranked first)
+    enriched.sort((a, b) => b.confirmations - a.confirmations);
+
+    return res.json({ reports: enriched, total: enriched.length, radius_km: RADIUS_KM });
 });
 
-// GET /reports/me
+// ─── GET /reports/me ──────────────────────────────────────────────────────────
 router.get('/me', authMiddleware, async (req: Request, res: Response) => {
     const deviceId = (req as any).deviceId as string;
     const ids = (await redis.zRange(`reports:device:${deviceId}`, 0, -1, { REV: true })) as string[];
@@ -198,19 +273,75 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
     if (!ids.length) return res.json({ reports: [] });
 
     const raws   = await Promise.all(ids.map((id) => redis.get(`report:${id}`)));
-    const reports = raws.filter(Boolean).map((r) => JSON.parse(r!));
+    const reports = await Promise.all(
+        raws
+            .filter(Boolean)
+            .map((r) => JSON.parse(r!))
+            .map((r) => enrichWithConfirmations(r, deviceId))
+    );
 
     return res.json({ reports });
 });
 
-// GET /reports/:id
+// ─── GET /reports/:id ─────────────────────────────────────────────────────────
 router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
     const raw = await redis.get(`report:${req.params.id}`);
     if (!raw) return res.status(404).json({ error: 'Report not found or expired' });
-    return res.json({ report: JSON.parse(raw) });
+
+    const report = await enrichWithConfirmations(JSON.parse(raw), (req as any).deviceId);
+    return res.json({ report });
 });
 
-// DELETE /reports/:id
+// ─── POST /reports/:id/confirm ────────────────────────────────────────────────
+router.post('/:id/confirm', authMiddleware, async (req: Request, res: Response) => {
+    const { id }   = req.params;
+    const deviceId = (req as any).deviceId as string;
+
+    const raw = await redis.get(`report:${id}`);
+    if (!raw) return res.status(404).json({ error: 'Report not found or expired' });
+
+    const alreadyConfirmed = await redis.sIsMember(`report:${id}:confirms`, deviceId);
+    if (alreadyConfirmed) {
+        return res.status(409).json({ error: 'You already confirmed this report.' });
+    }
+
+    await redis.sAdd(`report:${id}:confirms`, deviceId);
+    const confirmations = await redis.sCard(`report:${id}:confirms`);
+
+    // Re-score sorted sets by confirmation count
+    const report = JSON.parse(raw);
+    await redis.zAdd('reports:all',                    { score: confirmations, value: id });
+    await redis.zAdd(`reports:type:${report.type}`,    { score: confirmations, value: id });
+    await redis.zAdd(`reports:device:${report.device_id}`, { score: confirmations, value: id });
+
+    return res.json({ message: 'Report confirmed', confirmations });
+});
+
+// ─── DELETE /reports/:id/confirm ──────────────────────────────────────────────
+router.delete('/:id/confirm', authMiddleware, async (req: Request, res: Response) => {
+    const { id }   = req.params;
+    const deviceId = (req as any).deviceId as string;
+
+    const raw = await redis.get(`report:${id}`);
+    if (!raw) return res.status(404).json({ error: 'Report not found or expired' });
+
+    const wasConfirmed = await redis.sIsMember(`report:${id}:confirms`, deviceId);
+    if (!wasConfirmed) {
+        return res.status(409).json({ error: 'You have not confirmed this report.' });
+    }
+
+    await redis.sRem(`report:${id}:confirms`, deviceId);
+    const confirmations = await redis.sCard(`report:${id}:confirms`);
+
+    const report = JSON.parse(raw);
+    await redis.zAdd('reports:all',                    { score: confirmations, value: id });
+    await redis.zAdd(`reports:type:${report.type}`,    { score: confirmations, value: id });
+    await redis.zAdd(`reports:device:${report.device_id}`, { score: confirmations, value: id });
+
+    return res.json({ message: 'Confirmation removed', confirmations });
+});
+
+// ─── DELETE /reports/:id ──────────────────────────────────────────────────────
 router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
     const raw = await redis.get(`report:${req.params.id}`);
     if (!raw) return res.status(404).json({ error: 'Report not found or expired' });
@@ -222,8 +353,6 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
 
     const deactivated = { ...report, is_active: false, deactivated_at: new Date().toISOString() };
     await redis.set(`report:${req.params.id}`, JSON.stringify(deactivated), { KEEPTTL: true });
-
-    // Remove from GeoSet — no longer appears in radius searches
     await redis.zRem(GEO_KEY, report.id);
 
     return res.json({ message: 'Report deactivated' });
