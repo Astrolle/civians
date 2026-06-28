@@ -19,6 +19,21 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
   }
 
   (req as any).deviceId = apiKey;
-  (req as any).profile = result.rows[0];
+  (req as any).profile  = result.rows[0];
+  next();
+}
+
+/**
+ * Only allows requests from profiles with is_official = 1.
+ * Must be used after authMiddleware.
+ */
+export function officialOnly(req: Request, res: Response, next: NextFunction) {
+  const profile = (req as any).profile;
+  if (!profile || !profile.is_official) {
+    return res.status(403).json({
+      error:   'This action requires an official account.',
+      details: 'Contact Civians to verify your organization and get official access.',
+    });
+  }
   next();
 }

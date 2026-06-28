@@ -9,8 +9,9 @@ const ProfileSchema = z.object({
   device_id: z.string().min(1, 'device_id is required'),
   name:      z.string().min(1, 'name is required'),
   phone:     z.string().min(7, 'phone is required'),
-  city:      z.string().max(100).optional(),
-  country:   z.string().max(100).optional(),
+  city:             z.string().max(100).optional(),
+  country:          z.string().max(100).optional(),
+  search_radius_km: z.number().min(1).max(2000).optional().default(5),
 });
 
 const LocationSchema = z.object({
@@ -25,21 +26,21 @@ router.post('/', async (req: Request, res: Response) => {
     return res.status(400).json({ error: parse.error.flatten().fieldErrors });
   }
 
-  const { device_id, name, phone, city, country } = parse.data;
+  const { device_id, name, phone, city, country, search_radius_km } = parse.data;
   const now = new Date().toISOString();
-
   await getWriteDB().execute({
     sql: `
-      INSERT INTO profiles (device_id, name, phone, city, country, registered_at)
-      VALUES (:device_id, :name, :phone, :city, :country, :registered_at)
+      INSERT INTO profiles (device_id, name, phone, city, country, search_radius_km, registered_at)
+      VALUES (:device_id, :name, :phone, :city, :country, :search_radius_km, :registered_at)
       ON CONFLICT(device_id) DO UPDATE SET
-        name       = excluded.name,
-        phone      = excluded.phone,
-        city       = excluded.city,
-        country    = excluded.country,
-        updated_at = :registered_at
+        name             = excluded.name,
+        phone            = excluded.phone,
+        city             = excluded.city,
+        country          = excluded.country,
+        search_radius_km = excluded.search_radius_km,
+        updated_at       = :registered_at
     `,
-    args: { device_id, name, phone, city: city ?? null, country: country ?? null, registered_at: now },
+    args: { device_id, name, phone, city: city ?? null, country: country ?? null, search_radius_km: search_radius_km ?? 5, registered_at: now },
   });
 
   return res.status(201).json({
@@ -108,6 +109,73 @@ router.patch('/me/location', authMiddleware, async (req: Request, res: Response)
   });
 
   return res.json({ message: 'Location updated', location: { latitude, longitude } });
+});
+
+// PATCH /profile/official — Grant or revoke official status (admin only via secret)
+router.patch('/official', async (req: Request, res: Response) => {
+  const adminSecret = req.headers['x-admin-secret'] as string;
+  if (!adminSecret || adminSecret !== process.env.ADMIN_SECRET) {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+
+  const parse = z.object({
+    device_id:    z.string().min(1),
+    is_official:  z.boolean(),
+    official_org: z.string().max(150).optional(),
+    official_role: z.string().max(100).optional(),
+  }).safeParse(req.body);
+
+  if (!parse.success) return res.status(400).json({ error: parse.error.flatten().fieldErrors });
+
+  const { device_id, is_official, official_org, official_role } = parse.data;
+  const now = new Date().toISOString();
+
+  await getWriteDB().execute({
+    sql: `UPDATE profiles SET
+            is_official   = :is_official,
+            official_org  = :official_org,
+            official_role = :official_role,
+            updated_at    = :updated_at
+          WHERE device_id = :device_id`,
+    args: {
+      is_official:   is_official ? 1 : 0,
+      official_org:  official_org ?? null,
+      official_role: official_role ?? null,
+      updated_at:    now,
+      device_id,
+    },
+  });
+
+  return res.json({
+    message:      `Account ${is_official ? 'granted' : 'revoked'} official status`,
+    device_id,
+    is_official,
+    official_org:  official_org ?? null,
+    official_role: official_role ?? null,
+  });
+});
+
+// PATCH /profile/me/radius — Update search radius preference
+router.patch('/me/radius', authMiddleware, async (req: Request, res: Response) => {
+  const deviceId = (req as any).deviceId as string;
+
+  const parse = z.object({
+    search_radius_km: z.number().min(1, 'Minimum 1km').max(2000, 'Maximum 2000km'),
+  }).safeParse(req.body);
+
+  if (!parse.success) {
+    return res.status(400).json({ error: parse.error.flatten().fieldErrors });
+  }
+
+  const { search_radius_km } = parse.data;
+  const now = new Date().toISOString();
+
+  await getWriteDB().execute({
+    sql: 'UPDATE profiles SET search_radius_km = :radius, updated_at = :updated_at WHERE device_id = :device_id',
+    args: { radius: search_radius_km, updated_at: now, device_id: deviceId },
+  });
+
+  return res.json({ message: 'Search radius updated', search_radius_km });
 });
 
 export default router;
