@@ -7,6 +7,7 @@ import notificationRoutes from './routes/notifications';
 import reportRoutes from './routes/reports';
 import mediaRoutes from './routes/media';
 import collectionCenterRoutes from './routes/collectionCenters';
+import migrateRoutes from './routes/migrate';
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -42,6 +43,7 @@ app.use('/notifications', notificationRoutes);
 app.use('/reports', reportRoutes);
 app.use('/media', mediaRoutes);
 app.use('/collection-centers', collectionCenterRoutes);
+app.use('/admin', migrateRoutes); // TEMPORARY — remove after migration
 
 app.use((_, res) => res.status(404).json({ error: 'Route not found' }));
 

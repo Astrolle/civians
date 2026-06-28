@@ -145,7 +145,7 @@ router.get('/official', authMiddleware, async (req: Request, res: Response) => {
     kind:      'official',
     is_active: true,
     'location.geo': {
-      $nearSphere: {
+      $near: {
         $geometry:    { type: 'Point', coordinates: [lng, lat] },
         $maxDistance: radius * 1000,
       },
@@ -187,7 +187,7 @@ router.get('/unofficial', authMiddleware, async (req: Request, res: Response) =>
     kind: 'unofficial',
     is_active: true,
     'location.geo': {
-      $nearSphere: {
+      $near: {
         $geometry:    { type: 'Point', coordinates: [lng, lat] },
         $maxDistance: radius * 1000,
       },
@@ -223,7 +223,7 @@ router.get('/official/nearby', authMiddleware, async (req: Request, res: Respons
   const userCountryNearby = ((req as any).profile.country) || null;
   const nearbyFilter: any = {
     kind: 'official', is_active: true,
-    'location.geo': { $nearSphere: { $geometry: { type: 'Point', coordinates: [lng, lat] }, $maxDistance: radius * 1000 } },
+    'location.geo': { $near: { $geometry: { type: 'Point', coordinates: [lng, lat] }, $maxDistance: radius * 1000 } },
   };
   if (userCountryNearby) nearbyFilter.country = userCountryNearby;
 
@@ -251,7 +251,7 @@ router.get('/unofficial/nearby', authMiddleware, async (req: Request, res: Respo
 
   const docs = await getCollection('notifications').find({
     kind: 'unofficial', is_active: true,
-    'location.geo': { $nearSphere: { $geometry: { type: 'Point', coordinates: [lng, lat] }, $maxDistance: radius * 1000 } },
+    'location.geo': { $near: { $geometry: { type: 'Point', coordinates: [lng, lat] }, $maxDistance: radius * 1000 } },
   }).limit(100).toArray();
 
   const notifications = docs.map((doc: any) => {

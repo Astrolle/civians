@@ -229,7 +229,7 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
   const filter: any = {
     is_active: true,
     'location.geo': {
-      $nearSphere: {
+      $near: {
         $geometry:    { type: 'Point', coordinates: [lng, lat] },
         $maxDistance: RADIUS_KM * 1000,
       },

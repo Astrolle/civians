@@ -133,7 +133,7 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
   const filter: any = {
     is_active:     true,
     'location.geo': {
-      $nearSphere: {
+      $near: {
         $geometry:    { type: 'Point', coordinates: [lng, lat] },
         $maxDistance: radius * 1000,
       },
@@ -159,7 +159,7 @@ router.get('/nearby', authMiddleware, async (req: Request, res: Response) => {
   const docs = await getCollection('collection_centers').find({
     is_active: true,
     'location.geo': {
-      $nearSphere: {
+      $near: {
         $geometry:    { type: 'Point', coordinates: [lng, lat] },
         $maxDistance: radius * 1000,
       },
