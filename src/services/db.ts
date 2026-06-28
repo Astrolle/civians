@@ -86,6 +86,13 @@ export const connectMongo = async (): Promise<void> => {
   await reports.createIndex({ category: 1 });
   await reports.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 });
 
+  // ── Deceased Registry ────────────────────────────────────────────────────────
+  const deceased = mongoDB.collection('deceased');
+  await deceased.createIndex({ nombre: 'text', apellido: 'text', documento: 'text' }); // text search
+  await deceased.createIndex({ ciudad: 1 });
+  await deceased.createIndex({ uploaded_at: -1 });
+  await deceased.createIndex({ encontrado_en: 1 });
+
   // ── Collection Centers ────────────────────────────────────────────────────
   const centers = mongoDB.collection('collection_centers');
   await centers.createIndex({ 'location.geo': '2dsphere' });

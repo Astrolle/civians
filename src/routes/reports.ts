@@ -82,6 +82,15 @@ const ProfessionalHelpSchema = z.object({
   notes:           z.string().max(300).optional(),
 });
 
+// Status only for busco_a_alguien and busco_mi_mascota
+export const SEARCH_STATUSES = [
+  'buscando',     // default — still missing
+  'encontrado',   // found alive
+  'fallecido',    // confirmed deceased
+] as const;
+
+export type SearchStatus = typeof SEARCH_STATUSES[number];
+
 const BaseReportSchema = z.object({
   type: z.enum(REPORT_TYPES),
   message:       z.string().max(1000).optional(),
@@ -89,6 +98,9 @@ const BaseReportSchema = z.object({
   contact_phone: z.string().max(20).optional(),
   category:      z.enum(REPORT_CATEGORIES).optional(),
   target_name:   z.string().max(100).optional(),
+  // Status for busco_a_alguien and busco_mi_mascota
+  status: z.enum(SEARCH_STATUSES).optional(),
+
   // For busco_a_alguien — open-ended characteristics, any key/value pair
   person_details: z.preprocess(
     (val) => typeof val === 'string' ? JSON.parse(val) : val,
@@ -167,6 +179,12 @@ router.post('/', authMiddleware, upload.array('files', 3), async (req: Request, 
     photos,
     device_id:     deviceId,
     name:          profile.name,
+    // Default status for search reports
+    status: ['busco_a_alguien', 'busco_mi_mascota'].includes(data.type)
+      ? (data.status || 'buscando')
+      : undefined,
+    status_note:       null,
+    status_updated_at: null,
     confirmations: 0,
     confirmed_by:  [] as string[],
     created_at:    now,
@@ -306,6 +324,84 @@ router.patch('/:id', authMiddleware, upload.array('files', 3), async (req: Reque
   await col.updateOne({ _id: req.params.id as any }, { $set: update });
   const updated = await col.findOne({ _id: req.params.id as any });
   return res.json({ message: 'Report updated', report: { ...updated, _id: undefined, id: updated!._id } });
+});
+
+// ─── PATCH /reports/:id/status — update search status (owner only) ─────────────
+router.patch('/:id/status', authMiddleware, async (req: Request, res: Response) => {
+  const col = getCollection('reports');
+  const doc = await col.findOne({ _id: req.params.id as any });
+  if (!doc) return res.status(404).json({ error: 'Report not found or expired' });
+  if (doc.device_id !== (req as any).deviceId) {
+    return res.status(403).json({ error: 'You can only update the status of your own reports.' });
+  }
+
+  const SEARCH_TYPES = ['busco_a_alguien', 'busco_mi_mascota'];
+  if (!SEARCH_TYPES.includes(doc.type)) {
+    return res.status(400).json({ error: 'Status can only be updated on busco_a_alguien or busco_mi_mascota reports.' });
+  }
+
+  const parse = z.object({
+    status:  z.enum(SEARCH_STATUSES),
+    note:    z.string().max(300).optional(), // optional note e.g. "Encontrado en Hospital Vargas"
+  }).safeParse(req.body);
+
+  if (!parse.success) return res.status(400).json({ error: parse.error.flatten().fieldErrors });
+
+  const { status, note } = parse.data;
+  const now = new Date();
+
+  await col.updateOne({ _id: req.params.id as any }, {
+    $set: {
+      status,
+      status_note:      note ?? null,
+      status_updated_at: now,
+    },
+  });
+
+  // Notify all users who confirmed this report via OneSignal
+  const confirmedBy: string[] = doc.confirmed_by || [];
+  if (confirmedBy.length > 0) {
+    const statusLabels: Record<string, string> = {
+      encontrado: '✅ ¡Buenas noticias!',
+      fallecido:  '🕊️ Actualización importante',
+      buscando:   '🔍 Actualización de búsqueda',
+    };
+
+    const statusMessages: Record<string, string> = {
+      encontrado: `${doc.target_name || 'La persona'} fue encontrada${note ? `: ${note}` : '.'}`,
+      fallecido:  `${doc.target_name || 'La persona'} ha fallecido${note ? `. ${note}` : '.'}`,
+      buscando:   `Actualización en la búsqueda de ${doc.target_name || 'la persona'}${note ? `: ${note}` : '.'}`,
+    };
+
+    const axios = (await import('axios')).default;
+    try {
+      await axios.post('https://api.onesignal.com/notifications?c=push', {
+        app_id:          process.env.ONESIGNAL_APP_ID!,
+        include_aliases: { external_id: confirmedBy },
+        target_channel:  'push',
+        headings: { en: statusLabels[status] },
+        contents: { en: statusMessages[status] },
+        data: { report_id: req.params.id, type: doc.type, status, action: 'status_update' },
+        priority: 8,
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization:  `Key ${process.env.ONESIGNAL_API_KEY!}`,
+        },
+      });
+      console.log(`[Status] Notified ${confirmedBy.length} user(s) about status change: ${status}`);
+    } catch (err: any) {
+      console.error('[Status] Push failed:', err?.response?.data || err.message);
+    }
+  }
+
+  return res.json({
+    message:           'Status updated',
+    status,
+    status_note:       note ?? null,
+    status_updated_at: now,
+    notified_users:    confirmedBy.length,
+  });
 });
 
 // ─── POST /reports/:id/confirm ────────────────────────────────────────────────

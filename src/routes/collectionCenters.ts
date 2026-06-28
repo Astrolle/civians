@@ -80,15 +80,17 @@ function calcDistKm(lat1: number, lng1: number, lat2: number, lng2: number): num
 }
 
 function formatDoc(doc: any, lat?: number, lng?: number) {
+  if (!doc) return null;
+  const coordinates = doc.location?.coordinates ?? [];
   const out: any = {
     ...doc,
     _id:            undefined,
     id:             doc._id,
-    collapse_label: collapseLabel(doc.collapse_pct),
-    coordinates:    doc.location.coordinates, // top-level for map
+    collapse_label: collapseLabel(doc.collapse_pct ?? 0),
+    coordinates,
   };
-  if (lat !== undefined && lng !== undefined) {
-    out.dist_km = calcDistKm(lat, lng, doc.location.coordinates[1], doc.location.coordinates[0]);
+  if (lat !== undefined && lng !== undefined && coordinates.length === 2) {
+    out.dist_km = calcDistKm(lat, lng, coordinates[1], coordinates[0]);
   }
   return out;
 }
@@ -217,6 +219,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
 
   await col.updateOne({ _id: req.params.id as any }, { $set: update });
   const updated = await col.findOne({ _id: req.params.id as any });
+  if (!updated) return res.status(404).json({ error: 'Collection center not found after update' });
   return res.json({ message: 'Collection center updated', center: formatDoc(updated) });
 });
 
