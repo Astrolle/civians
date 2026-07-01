@@ -305,7 +305,13 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
   };
   if (parse.data.location) {
     const [lng, lat] = parse.data.location.coordinates as [number, number];
-    update['location.geo'] = { type: 'Point', coordinates: [lng, lat] };
+    // Set `location` as a single merged field — never combine `location`
+    // and `location.geo` in the same $set, MongoDB rejects that as a
+    // conflicting path update and throws.
+    update.location = {
+      ...parse.data.location,
+      geo: { type: 'Point', coordinates: [lng, lat] },
+    };
   }
 
   await col.updateOne({ _id: req.params.id as any }, { $set: update });
