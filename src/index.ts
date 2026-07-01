@@ -35,6 +35,10 @@ app.get('/', (_, res) => {
   res.sendFile(path.join(__dirname, '..', 'views', 'index.html'));
 });
 
+app.get('/centrosdeacopio', (_, res) => {
+  res.sendFile(path.join(__dirname, '..', 'views', 'centrosdeacopio.html'));
+});
+
 app.get('/health', (_, res) => res.json({
   status: 'ok', service: 'civians-api', ts: new Date().toISOString(),
 }));
@@ -69,7 +73,11 @@ app.use((_, res) => res.status(404).json({ error: 'Route not found' }));
     console.log(`   GET    /reports/map                  → All pins for map`);
     console.log(`   POST   /collection-centers           → Create center`);
     console.log(`   GET    /collection-centers           → List by proximity`);
-    console.log(`   GET    /collection-centers/map       → All pins for map`);
-    console.log(`   PATCH  /collection-centers/:id/collapse → Update status\n`);
+    console.log(`   GET    /collection-centers/map       → All pins for map (device auth)`);
+    console.log(`   GET    /collection-centers/public/map → All pins for map (no auth, public)`);
+    console.log(`   GET    /collection-centers/external  → For partner apps (x-api-key)`);
+    console.log(`   PATCH  /collection-centers/:id/collapse → Update status`);
+    console.log(`\n   [Web]`);
+    console.log(`   GET    /centrosdeacopio              → Public map view\n`);
   });
 })();

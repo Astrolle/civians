@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Centros de acopio — Civians</title>
+  <meta name="description" content="Mapa en tiempo real de centros de acopio en Venezuela: cuáles necesitan insumos y cuáles están colapsados." />
+
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #050505;
+      color: #fff;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    a { color: inherit; }
+
+    /* ── Map ─────────────────────────────────────────────────────────── */
+
+    #map {
+      position: absolute;
+      inset: 0;
+      background: #050505;
+    }
+
+    /* ── Legend / saturation scale ──────────────────────────────────── */
+
+    .legend {
+      position: fixed;
+      left: 20px;
+      bottom: 20px;
+      z-index: 20;
+      background: rgba(12, 12, 12, .92);
+      backdrop-filter: blur(10px);
+      border: 1px solid #232323;
+      border-radius: 14px;
+      padding: 18px;
+      width: 240px;
+    }
+
+    .legend h3 {
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: #9b9b9b;
+      margin-bottom: 14px;
+    }
+
+    .legend-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      padding: 6px 0;
+    }
+
+    .dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .dot.empty      { background: #22c55e; }
+    .dot.sufficient { background: #f59e0b; }
+    .dot.collapsed  { background: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,.2); }
+
+    .legend-row small {
+      display: block;
+      color: #6b6b6b;
+      font-size: 11px;
+    }
+
+    /* ── Top bar: stats + search, side by side on desktop ─────────────── */
+
+    .top-bar {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      right: 90px;
+      z-index: 20;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      pointer-events: none;
+    }
+
+    .top-bar > * { pointer-events: auto; }
+
+    .stats {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+
+    .stat-pill {
+      background: rgba(12, 12, 12, .92);
+      backdrop-filter: blur(10px);
+      border: 1px solid #232323;
+      border-radius: 999px;
+      padding: 9px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .stat-pill b { font-weight: 800; }
+    .stat-pill.empty b      { color: #22c55e; }
+    .stat-pill.sufficient b { color: #f59e0b; }
+    .stat-pill.collapsed b  { color: #ef4444; }
+
+    /* ── Search box ──────────────────────────────────────────────────── */
+
+    .search-box {
+      width: 260px;
+      flex-shrink: 0;
+    }
+
+    .search-box input {
+      width: 100%;
+      background: rgba(12, 12, 12, .92);
+      backdrop-filter: blur(10px);
+      border: 1px solid #232323;
+      border-radius: 12px;
+      padding: 12px 14px;
+      color: #fff;
+      font-size: 14px;
+      font-family: inherit;
+    }
+
+    .search-box input::placeholder { color: #6b6b6b; }
+    .search-box input:focus { outline: none; border-color: #1463ff; }
+
+    /* ── Markers: simple colored dots ───────────────────────────────── */
+
+    .marker-dot {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,.85);
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,.4);
+    }
+
+    .marker-dot[data-status="empty"]      { background: #22c55e; }
+    .marker-dot[data-status="sufficient"] { background: #f59e0b; }
+    .marker-dot[data-status="collapsed"]  { background: #ef4444; box-shadow: 0 0 0 5px rgba(239,68,68,.22); }
+
+    /* Geolocate control — match the pill navigation buttons in the app */
+    .maplibregl-ctrl-top-right { top: 20px; }
+    .maplibregl-ctrl-group {
+      background: rgba(12,12,12,.92) !important;
+      border: 1px solid #232323 !important;
+      backdrop-filter: blur(10px);
+    }
+    .maplibregl-ctrl-group button { background: transparent !important; }
+    .maplibregl-ctrl-icon { filter: invert(1); }
+
+    .maplibregl-popup-content {
+      background: #0c0c0c !important;
+      color: #fff !important;
+      border: 1px solid #232323 !important;
+      border-radius: 14px !important;
+      padding: 16px !important;
+      font-family: Inter, sans-serif !important;
+      box-shadow: 0 12px 40px rgba(0,0,0,.5) !important;
+      min-width: 220px;
+    }
+
+    .maplibregl-popup-tip { border-top-color: #232323 !important; }
+    .maplibregl-popup-close-button { color: #9b9b9b !important; font-size: 18px !important; }
+
+    .popup-status {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      padding: 3px 8px;
+      border-radius: 5px;
+      margin-bottom: 10px;
+    }
+
+    .popup-status.empty      { background: rgba(34,197,94,.15);  color: #22c55e; }
+    .popup-status.sufficient { background: rgba(245,158,11,.15); color: #f59e0b; }
+    .popup-status.collapsed  { background: rgba(239,68,68,.15);  color: #ef4444; }
+
+    .popup-name {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -.3px;
+      margin-bottom: 6px;
+    }
+
+    .popup-city {
+      font-size: 13px;
+      color: #9b9b9b;
+      margin-bottom: 12px;
+    }
+
+    .popup-bar-track {
+      height: 6px;
+      background: #1e1e1e;
+      border-radius: 999px;
+      overflow: hidden;
+      margin-bottom: 6px;
+    }
+
+    .popup-bar-fill { height: 100%; border-radius: 999px; }
+
+    .popup-pct {
+      font-size: 11px;
+      color: #6b6b6b;
+      margin-bottom: 12px;
+    }
+
+    .popup-needs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .popup-need-tag {
+      font-size: 11px;
+      background: #161616;
+      border: 1px solid #262626;
+      color: #cfcfcf;
+      padding: 4px 8px;
+      border-radius: 6px;
+    }
+
+    .popup-directions {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      width: 100%;
+      background: #1463ff;
+      color: #fff;
+      font-weight: 700;
+      font-size: 13px;
+      padding: 10px 14px;
+      border-radius: 9px;
+      text-decoration: none;
+      margin-bottom: 12px;
+    }
+
+    .popup-directions:hover { background: #0f52d6; }
+    .popup-directions svg { width: 15px; height: 15px; flex-shrink: 0; }
+
+    .popup-cta {
+      margin-top: 4px;
+      padding-top: 12px;
+      border-top: 1px solid #232323;
+      font-size: 12px;
+      color: #9b9b9b;
+      line-height: 1.5;
+    }
+
+    .popup-cta a {
+      color: #1463ff;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .popup-cta a:hover { text-decoration: underline; }
+
+    /* ── Loading / empty states ──────────────────────────────────────── */
+
+    .state-msg {
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 15;
+      text-align: center;
+      color: #9b9b9b;
+      font-size: 14px;
+    }
+
+    .state-msg .dot-spin {
+      width: 22px; height: 22px;
+      border: 2px solid #232323;
+      border-top-color: #1463ff;
+      border-radius: 50%;
+      margin: 0 auto 14px;
+      animation: spin .8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 640px) {
+      .top-bar {
+        right: 20px;
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .search-box { width: 100%; }
+      .legend { width: calc(100vw - 40px); }
+      .maplibregl-ctrl-top-right { top: 158px; }
+    }
+
+    .maplibregl-ctrl-attrib a { color: #1463ff !important; }
+    .maplibregl-ctrl-bottom-right { z-index: 20; }
+  </style>
+</head>
+<body>
+
+  <div id="map"></div>
+
+  <div class="top-bar">
+    <div class="stats" id="stats"></div>
+    <div class="search-box">
+      <input type="text" id="search-input" placeholder="Buscar centro o ciudad..." />
+    </div>
+  </div>
+
+  <div class="legend">
+    <h3>Estado de saturación</h3>
+    <div class="legend-row">
+      <span class="dot empty"></span>
+      <div>Necesita insumos <small>0–30% capacidad</small></div>
+    </div>
+    <div class="legend-row">
+      <span class="dot sufficient"></span>
+      <div>Insumos suficientes <small>31–70% capacidad</small></div>
+    </div>
+    <div class="legend-row">
+      <span class="dot collapsed"></span>
+      <div>Colapsado <small>71–100% — no recibe más</small></div>
+    </div>
+  </div>
+
+  <div id="state-msg" class="state-msg">
+    <div class="dot-spin"></div>
+    Cargando centros de acopio...
+  </div>
+
+  <script>
+    const STATUS_COLOR = { empty: '#22c55e', sufficient: '#f59e0b', collapsed: '#ef4444' };
+    const STATUS_LABEL = { empty: 'Necesita insumos', sufficient: 'Insumos suficientes', collapsed: 'Colapsado' };
+    const NEED_LABEL = {
+      insumos_no_perecederos: 'Insumos no perecederos',
+      insumos_medicos:        'Insumos médicos',
+      transporte:             'Transporte',
+      voluntarios_logistica:  'Voluntarios de logística',
+      voluntarios_medicos:    'Voluntarios médicos',
+      otros_insumos:          'Otros insumos',
+    };
+
+    let allCenters = [];
+    let markers = [];
+
+    const map = new maplibregl.Map({
+      container: 'map',
+      style: 'https://tiles.openfreemap.org/styles/dark',
+      center: [-66.9, 8.5], // Venezuela
+      zoom: 5.3,
+      attributionControl: false,
+    });
+
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+    map.addControl(
+      new maplibregl.GeolocateControl({
+        positionOptions: { enableHighAccuracy: true },
+        trackUserLocation: true,
+        showUserHeading: true,
+      }),
+      'top-right'
+    );
+    map.addControl(
+      new maplibregl.AttributionControl({
+        compact: true,
+        customAttribution: '<a href="/" title="Volver a Civians">Civians</a>',
+      })
+    );
+
+    function needsList(needs) {
+      if (!needs) return [];
+      return Object.keys(NEED_LABEL).filter((k) => needs[k]);
+    }
+
+    function renderStats(centers) {
+      const counts = { empty: 0, sufficient: 0, collapsed: 0 };
+      centers.forEach((c) => { counts[c.collapse_label] = (counts[c.collapse_label] || 0) + 1; });
+
+      document.getElementById('stats').innerHTML = `
+        <div class="stat-pill"><b>${centers.length}</b> centros activos</div>
+        <div class="stat-pill empty"><b>${counts.empty}</b> necesitan insumos</div>
+        <div class="stat-pill collapsed"><b>${counts.collapsed}</b> colapsados</div>
+      `;
+    }
+
+    function popupHTML(c) {
+      const pct   = c.collapse_pct ?? 0;
+      const color = STATUS_COLOR[c.collapse_label] || '#9b9b9b';
+      const needs = needsList(c.needs);
+      const [lng, lat] = c.coordinates;
+      const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+
+      return `
+        <div class="popup-status ${c.collapse_label}">${STATUS_LABEL[c.collapse_label] || ''}</div>
+        <div class="popup-name">${c.name}</div>
+        ${c.city ? `<div class="popup-city">${c.city}</div>` : ''}
+        <div class="popup-bar-track">
+          <div class="popup-bar-fill" style="width:${pct}%; background:${color};"></div>
+        </div>
+        <div class="popup-pct">${pct}% de capacidad ocupada</div>
+        ${needs.length ? `
+          <div class="popup-needs" style="margin-bottom:14px;">
+            ${needs.map((k) => `<span class="popup-need-tag">${NEED_LABEL[k]}</span>`).join('')}
+          </div>
+        ` : ''}
+        <a class="popup-directions" href="${directionsUrl}" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 21s-7-6.5-7-11a7 7 0 0 1 14 0c0 4.5-7 11-7 11z" stroke="#fff" stroke-width="1.8"/>
+            <circle cx="12" cy="10" r="2.3" stroke="#fff" stroke-width="1.8"/>
+          </svg>
+          Cómo llegar
+        </a>
+        <div class="popup-cta">
+          ¿Este centro cambió? <a href="/#download" target="_blank">Descarga Civians</a> para editar su información.
+        </div>
+      `;
+    }
+
+    function plotCenters(centers) {
+      markers.forEach((m) => m.remove());
+      markers = [];
+
+      centers.forEach((c) => {
+        if (!c.coordinates || c.coordinates.length !== 2) return;
+
+        const el = document.createElement('div');
+        el.className = 'marker-dot';
+        el.dataset.status = c.collapse_label;
+
+        const popup = new maplibregl.Popup({ offset: 14, maxWidth: '260px' }).setHTML(popupHTML(c));
+
+        const marker = new maplibregl.Marker({ element: el })
+          .setLngLat(c.coordinates)
+          .setPopup(popup)
+          .addTo(map);
+
+        markers.push(marker);
+      });
+    }
+
+    async function loadCenters() {
+      const stateMsg = document.getElementById('state-msg');
+      try {
+        const res  = await fetch('/collection-centers/public/map');
+        if (!res.ok) throw new Error('request failed');
+        const data = await res.json();
+
+        allCenters = data.centers || [];
+        stateMsg.style.display = 'none';
+
+        if (allCenters.length === 0) {
+          stateMsg.style.display = 'block';
+          stateMsg.innerHTML = 'Todavía no hay centros de acopio registrados.';
+          return;
+        }
+
+        renderStats(allCenters);
+        plotCenters(allCenters);
+      } catch (err) {
+        stateMsg.innerHTML = 'No se pudieron cargar los centros. Intenta de nuevo más tarde.';
+      }
+    }
+
+    document.getElementById('search-input').addEventListener('input', (e) => {
+      const q = e.target.value.trim().toLowerCase();
+      if (!q) { renderStats(allCenters); plotCenters(allCenters); return; }
+
+      const filtered = allCenters.filter((c) =>
+        c.name.toLowerCase().includes(q) || (c.city || '').toLowerCase().includes(q)
+      );
+      renderStats(filtered);
+      plotCenters(filtered);
+    });
+
+    map.on('load', loadCenters);
+    // Refresh saturation data every 2 minutes without reloading the page.
+    setInterval(loadCenters, 2 * 60 * 1000);
+  </script>
+
+</body>
+</html>

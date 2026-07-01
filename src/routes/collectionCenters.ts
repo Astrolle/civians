@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import { getCollection } from '../services/db';
 import { authMiddleware } from '../middleware/auth';
+import { apiKeyMiddleware } from '../middleware/apiKey';
 
 const router = Router();
 
@@ -173,6 +174,44 @@ router.get('/nearby', authMiddleware, async (req: Request, res: Response) => {
   return res.json({ centers, total: centers.length, radius_km: radius });
 });
 
+// ─── GET /collection-centers/search — filter by name/city/neighborhood ──────
+// Powers the search bar in the app. Independent of proximity: searches across
+// all active centers by text, optionally still sorted by distance if lat/lng
+// are provided (e.g. searching while "Cerca de mí" is active).
+router.get('/search', authMiddleware, async (req: Request, res: Response) => {
+  const q = (req.query.q as string || '').trim();
+  if (!q) {
+    return res.status(400).json({ error: 'q (search text) is required.' });
+  }
+
+  const lat = parseFloat(req.query.latitude  as string);
+  const lng = parseFloat(req.query.longitude as string);
+  const hasCoords = !isNaN(lat) && !isNaN(lng);
+
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(escaped, 'i');
+
+  const filter: any = {
+    is_active: true,
+    $or: [
+      { name:                regex },
+      { 'location.name':         regex },
+      { 'location.city':         regex },
+      { 'location.neighborhood': regex },
+      { 'location.address':      regex },
+    ],
+  };
+
+  const docs = await getCollection('collection_centers').find(filter).limit(100).toArray();
+  let centers = docs.map((doc: any) => formatDoc(doc, hasCoords ? lat : undefined, hasCoords ? lng : undefined));
+
+  if (hasCoords) {
+    centers = centers.sort((a: any, b: any) => (a.dist_km ?? Infinity) - (b.dist_km ?? Infinity));
+  }
+
+  return res.json({ centers, total: centers.length, query: q });
+});
+
 // ─── GET /collection-centers/map — all active for map pins ───────────────────
 router.get('/map', authMiddleware, async (req: Request, res: Response) => {
   const docs = await getCollection('collection_centers').find(
@@ -192,6 +231,52 @@ router.get('/map', authMiddleware, async (req: Request, res: Response) => {
   return res.json({ centers, total: centers.length });
 });
 
+// ─── GET /collection-centers/public/map — no auth, for the public web view ──
+// Powers the /centrosdeacopio page. Deliberately unauthenticated: collection
+// center locations and saturation status are public-interest information,
+// same data already shown in the app's /map endpoint, just reachable from a
+// browser that has no device_id.
+router.get('/public/map', async (_req: Request, res: Response) => {
+  const docs = await getCollection('collection_centers').find(
+    { is_active: true },
+    { projection: { _id: 1, name: 1, location: 1, collapse_pct: 1, needs: 1, city: 1 } }
+  ).limit(1000).toArray();
+
+  const centers = docs.map((doc: any) => ({
+    id:             doc._id,
+    name:           doc.name,
+    coordinates:    doc.location.coordinates,
+    city:           doc.location.city,
+    collapse_pct:   doc.collapse_pct,
+    collapse_label: collapseLabel(doc.collapse_pct),
+    needs:          doc.needs,
+  }));
+
+  return res.json({ centers, total: centers.length });
+});
+
+// ─── GET /collection-centers/external — for partner apps, requires x-api-key ─
+// Meant for other organizations/apps (e.g. Yumi) to sync collection-center
+// data programmatically. Requires a private API key in the `x-api-key`
+// header (see COLLECTION_CENTERS_API_KEY env var) instead of device auth,
+// since external apps don't have a Civians device_id.
+router.get('/external', apiKeyMiddleware, async (req: Request, res: Response) => {
+  const updatedSince = req.query.updated_since as string | undefined;
+
+  const filter: any = { is_active: true };
+  if (updatedSince) {
+    const since = new Date(updatedSince);
+    if (!isNaN(since.getTime())) {
+      filter.updated_at = { $gte: since };
+    }
+  }
+
+  const docs = await getCollection('collection_centers').find(filter).limit(1000).toArray();
+  const centers = docs.map((doc: any) => formatDoc(doc));
+
+  return res.json({ centers, total: centers.length });
+});
+
 // ─── GET /collection-centers/:id ─────────────────────────────────────────────
 router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
   const doc = await getCollection('collection_centers').findOne({ _id: req.params.id as any });
@@ -200,18 +285,24 @@ router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
 });
 
 // ─── PATCH /collection-centers/:id ───────────────────────────────────────────
+// Any authenticated user can edit — collection centers are community-maintained,
+// not owned by their creator. We keep created_by as historical record and add
+// last_edited_by/last_edited_at as an audit trail of the most recent editor.
 router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
   const col = getCollection('collection_centers');
   const doc = await col.findOne({ _id: req.params.id as any });
   if (!doc) return res.status(404).json({ error: 'Collection center not found' });
-  if (doc.created_by !== (req as any).deviceId) {
-    return res.status(403).json({ error: 'You can only edit your own collection centers.' });
-  }
 
   const parse = CenterSchema.partial().safeParse(req.body);
   if (!parse.success) return res.status(400).json({ error: parse.error.flatten().fieldErrors });
 
-  const update: any = { ...parse.data, updated_at: new Date() };
+  const now = new Date();
+  const update: any = {
+    ...parse.data,
+    updated_at:      now,
+    last_edited_by:  (req as any).deviceId,
+    last_edited_at:  now,
+  };
   if (parse.data.location) {
     const [lng, lat] = parse.data.location.coordinates as [number, number];
     update['location.geo'] = { type: 'Point', coordinates: [lng, lat] };
@@ -224,19 +315,24 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
 });
 
 // ─── PATCH /collection-centers/:id/collapse — quick update of collapse % ─────
+// Any authenticated user can report saturation — this is the field most likely
+// to go stale, so letting anyone update it keeps the data current.
 router.patch('/:id/collapse', authMiddleware, async (req: Request, res: Response) => {
   const col = getCollection('collection_centers');
   const doc = await col.findOne({ _id: req.params.id as any });
   if (!doc) return res.status(404).json({ error: 'Collection center not found' });
-  if (doc.created_by !== (req as any).deviceId) {
-    return res.status(403).json({ error: 'You can only update your own collection centers.' });
-  }
 
   const parse = z.object({ collapse_pct: z.number().min(0).max(100) }).safeParse(req.body);
   if (!parse.success) return res.status(400).json({ error: parse.error.flatten().fieldErrors });
 
+  const now = new Date();
   await col.updateOne({ _id: req.params.id as any }, {
-    $set: { collapse_pct: parse.data.collapse_pct, updated_at: new Date() },
+    $set: {
+      collapse_pct:   parse.data.collapse_pct,
+      updated_at:     now,
+      last_edited_by: (req as any).deviceId,
+      last_edited_at: now,
+    },
   });
 
   return res.json({

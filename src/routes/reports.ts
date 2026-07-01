@@ -283,6 +283,58 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   return res.json({ reports, total: reports.length });
 });
 
+// ─── GET /reports/search — filter by message/target/type/location ──────────
+// Text search across active reports. Independent of proximity, mirrors
+// GET /collection-centers/search. Optionally sorted by distance if
+// latitude/longitude are provided.
+router.get('/search', authMiddleware, async (req: Request, res: Response) => {
+  const q = (req.query.q as string || '').trim();
+  if (!q) {
+    return res.status(400).json({ error: 'q (search text) is required.' });
+  }
+
+  const lat = parseFloat(req.query.latitude  as string);
+  const lng = parseFloat(req.query.longitude as string);
+  const hasCoords = !isNaN(lat) && !isNaN(lng);
+  const deviceId  = (req as any).deviceId as string;
+
+  const type = req.query.type as string | undefined;
+
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(escaped, 'i');
+
+  const filter: any = {
+    is_active: true,
+    $or: [
+      { message:                 regex },
+      { target_name:             regex },
+      { type:                    regex },
+      { category:                regex },
+      { name:                    regex }, // reporter's name
+      { 'location.city':         regex },
+      { 'location.neighborhood': regex },
+    ],
+  };
+  if (type) filter.type = type;
+
+  const docs = await getCollection('reports').find(filter).limit(100).toArray();
+
+  let reports = docs.map((doc: any) => {
+    const confirmed_by_me = (doc.confirmed_by || []).includes(deviceId);
+    const base = { ...doc, _id: undefined, id: doc._id, confirmed_by_me };
+    if (hasCoords && doc.location?.coordinates?.length === 2) {
+      return { ...base, dist_km: calcDistKm(lat, lng, doc.location.coordinates[1], doc.location.coordinates[0]) };
+    }
+    return base;
+  });
+
+  if (hasCoords) {
+    reports = reports.sort((a: any, b: any) => (a.dist_km ?? Infinity) - (b.dist_km ?? Infinity));
+  }
+
+  return res.json({ reports, total: reports.length, query: q });
+});
+
 // ─── GET /reports/:id ─────────────────────────────────────────────────────────
 router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
   const doc = await getCollection('reports').findOne({ _id: req.params.id as any });

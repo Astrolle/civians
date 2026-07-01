@@ -288,6 +288,70 @@ router.get('/map', authMiddleware, async (req: Request, res: Response) => {
   return res.json({ notifications, total: notifications.length });
 });
 
+// ─── GET /notifications/search — filter by title/description/type/location ──
+// Text search across active notifications (official + unofficial). Mirrors
+// GET /collection-centers/search and GET /reports/search. Optionally sorted
+// by distance and respects the same country restriction official notifications
+// already use, so unofficial/other-country official results aren't mixed in
+// incorrectly.
+router.get('/search', authMiddleware, async (req: Request, res: Response) => {
+  const q = (req.query.q as string || '').trim();
+  if (!q) {
+    return res.status(400).json({ error: 'q (search text) is required.' });
+  }
+
+  const lat = parseFloat(req.query.latitude  as string);
+  const lng = parseFloat(req.query.longitude as string);
+  const hasCoords = !isNaN(lat) && !isNaN(lng);
+  const deviceId  = (req as any).deviceId as string;
+
+  const kind     = req.query.kind     as string | undefined; // 'official' | 'unofficial'
+  const severity = req.query.severity as string | undefined;
+
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(escaped, 'i');
+
+  const filter: any = {
+    is_active: true,
+    $or: [
+      { title:                   regex },
+      { description:             regex },
+      { event_type:              regex },
+      { 'location.name':         regex },
+      { 'location.city':         regex },
+      { 'location.neighborhood': regex },
+    ],
+  };
+  if (kind)     filter.kind     = kind;
+  if (severity) filter.severity = severity;
+
+  // Same rule as GET /notifications/official — only show official
+  // notifications from the user's own country, if we know it.
+  const userCountry = ((req as any).profile?.country) || null;
+  if (userCountry) {
+    filter.$and = [
+      { $or: [{ kind: { $ne: 'official' } }, { country: userCountry }] },
+    ];
+  }
+
+  const docs = await getCollection('notifications').find(filter).limit(100).toArray();
+
+  let notifications = docs.map((doc: any) => {
+    const confirmed_by_me = (doc.confirmed_by || []).includes(deviceId);
+    const base = { ...doc, _id: undefined, id: doc._id, confirmed_by_me };
+    if (hasCoords && doc.location?.coordinates?.length === 2) {
+      return { ...base, dist_km: calcDistKm(lat, lng, doc.location.coordinates[1], doc.location.coordinates[0]) };
+    }
+    return base;
+  });
+
+  if (hasCoords) {
+    notifications = notifications.sort((a: any, b: any) => (a.dist_km ?? Infinity) - (b.dist_km ?? Infinity));
+  }
+
+  return res.json({ notifications, total: notifications.length, query: q });
+});
+
 // ─── GET /notifications/:id ───────────────────────────────────────────────────
 router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
   const doc = await getCollection('notifications').findOne({ _id: req.params.id as any });
