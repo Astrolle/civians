@@ -155,6 +155,8 @@
     .marker-dot[data-status="empty"]      { background: #22c55e; }
     .marker-dot[data-status="sufficient"] { background: #f59e0b; }
     .marker-dot[data-status="collapsed"]  { background: #ef4444; box-shadow: 0 0 0 5px rgba(239,68,68,.22); }
+    .marker-dot[data-status="deshabilitado"]       { background: #6b7280; }
+    .marker-dot[data-status="tomado_por_gobierno"] { background: #000; border-color: #6b7280; }
 
     /* Geolocate control — match the pill navigation buttons in the app */
     .maplibregl-ctrl-top-right { top: 20px; }
@@ -194,6 +196,8 @@
     .popup-status.empty      { background: rgba(34,197,94,.15);  color: #22c55e; }
     .popup-status.sufficient { background: rgba(245,158,11,.15); color: #f59e0b; }
     .popup-status.collapsed  { background: rgba(239,68,68,.15);  color: #ef4444; }
+    .popup-status.deshabilitado       { background: rgba(107,114,128,.2); color: #9ca3af; }
+    .popup-status.tomado_por_gobierno { background: rgba(255,255,255,.12); color: #d4d4d4; }
 
     .popup-name {
       font-size: 17px;
@@ -338,6 +342,14 @@
       <span class="dot collapsed"></span>
       <div>Colapsado <small>71–100% — no recibe más</small></div>
     </div>
+    <div class="legend-row">
+      <span class="dot" style="background:#6b7280;"></span>
+      <div>Deshabilitado <small>Fuera de operación</small></div>
+    </div>
+    <div class="legend-row">
+      <span class="dot" style="background:#000;border:2px solid #6b7280;"></span>
+      <div>Tomado por el gobierno</div>
+    </div>
   </div>
 
   <div id="state-msg" class="state-msg">
@@ -346,8 +358,14 @@
   </div>
 
   <script>
-    const STATUS_COLOR = { empty: '#22c55e', sufficient: '#f59e0b', collapsed: '#ef4444' };
-    const STATUS_LABEL = { empty: 'Necesita insumos', sufficient: 'Insumos suficientes', collapsed: 'Colapsado' };
+    const STATUS_COLOR = {
+      empty: '#22c55e', sufficient: '#f59e0b', collapsed: '#ef4444',
+      deshabilitado: '#6b7280', tomado_por_gobierno: '#000000',
+    };
+    const STATUS_LABEL = {
+      empty: 'Necesita insumos', sufficient: 'Insumos suficientes', collapsed: 'Colapsado',
+      deshabilitado: 'Deshabilitado', tomado_por_gobierno: 'Tomado por el gobierno',
+    };
     const NEED_LABEL = {
       insumos_no_perecederos: 'Insumos no perecederos',
       insumos_medicos:        'Insumos médicos',
@@ -391,7 +409,7 @@
 
     function renderStats(centers) {
       const counts = { empty: 0, sufficient: 0, collapsed: 0 };
-      centers.forEach((c) => { counts[c.collapse_label] = (counts[c.collapse_label] || 0) + 1; });
+      centers.forEach((c) => { counts[c.display_label] = (counts[c.display_label] || 0) + 1; });
 
       document.getElementById('stats').innerHTML = `
         <div class="stat-pill"><b>${centers.length}</b> centros activos</div>
@@ -402,13 +420,13 @@
 
     function popupHTML(c) {
       const pct   = c.collapse_pct ?? 0;
-      const color = STATUS_COLOR[c.collapse_label] || '#9b9b9b';
+      const color = STATUS_COLOR[c.display_label] || '#9b9b9b';
       const needs = needsList(c.needs);
       const [lng, lat] = c.coordinates;
       const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
 
       return `
-        <div class="popup-status ${c.collapse_label}">${STATUS_LABEL[c.collapse_label] || ''}</div>
+        <div class="popup-status ${c.display_label}">${STATUS_LABEL[c.display_label] || ''}</div>
         <div class="popup-name">${c.name}</div>
         ${c.city ? `<div class="popup-city">${c.city}</div>` : ''}
         <div class="popup-bar-track">
@@ -442,7 +460,7 @@
 
         const el = document.createElement('div');
         el.className = 'marker-dot';
-        el.dataset.status = c.collapse_label;
+        el.dataset.status = c.display_label;
 
         const popup = new maplibregl.Popup({ offset: 14, maxWidth: '260px' }).setHTML(popupHTML(c));
 

@@ -20,6 +20,13 @@ const SUPPLY_TYPES = [
 
 export type SupplyType = typeof SUPPLY_TYPES[number];
 
+// Operating status of the center itself, independent of how full it is.
+// - habilitado: normal operation — color reflects collapse_pct (capacity)
+// - deshabilitado: temporarily not operating — always shown gray
+// - tomado_por_gobierno: taken over by the government — always shown black
+const CENTER_STATUSES = ['habilitado', 'deshabilitado', 'tomado_por_gobierno'] as const;
+export type CenterStatus = typeof CENTER_STATUSES[number];
+
 const NeedsSchema = z.object({
   insumos_no_perecederos: z.boolean().optional().default(false),
   insumos_medicos:        z.boolean().optional().default(false),
@@ -49,6 +56,9 @@ const CenterSchema = z.object({
   // Capacity status 0–100%: 0 = empty, 50 = sufficient, 100 = collapsed
   collapse_pct: z.number().min(0).max(100),
 
+  // Operating status — see CENTER_STATUSES above
+  status: z.enum(CENTER_STATUSES).optional().default('habilitado'),
+
   // What they need
   needs: NeedsSchema,
 
@@ -72,6 +82,15 @@ function collapseLabel(pct: number): string {
   return 'collapsed';                   // Colapsado
 }
 
+// The label the UI should actually color/render by. Operating status
+// overrides the capacity color: disabled and government-taken centers show
+// their own fixed color no matter how full they are.
+function displayLabel(status: CenterStatus | undefined, pct: number): string {
+  if (status === 'deshabilitado')         return 'deshabilitado';
+  if (status === 'tomado_por_gobierno')   return 'tomado_por_gobierno';
+  return collapseLabel(pct);              // 'empty' | 'sufficient' | 'collapsed'
+}
+
 function calcDistKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R  = 6371;
   const dL = ((lat2 - lat1) * Math.PI) / 180;
@@ -87,7 +106,9 @@ function formatDoc(doc: any, lat?: number, lng?: number) {
     ...doc,
     _id:            undefined,
     id:             doc._id,
+    status:         doc.status || 'habilitado',
     collapse_label: collapseLabel(doc.collapse_pct ?? 0),
+    display_label:  displayLabel(doc.status, doc.collapse_pct ?? 0),
     coordinates,
   };
   if (lat !== undefined && lng !== undefined && coordinates.length === 2) {
@@ -216,7 +237,7 @@ router.get('/search', authMiddleware, async (req: Request, res: Response) => {
 router.get('/map', authMiddleware, async (req: Request, res: Response) => {
   const docs = await getCollection('collection_centers').find(
     { is_active: true },
-    { projection: { _id: 1, name: 1, location: 1, collapse_pct: 1, needs: 1 } }
+    { projection: { _id: 1, name: 1, location: 1, collapse_pct: 1, status: 1, needs: 1 } }
   ).limit(500).toArray();
 
   const centers = docs.map((doc: any) => ({
@@ -225,6 +246,8 @@ router.get('/map', authMiddleware, async (req: Request, res: Response) => {
     coordinates:    doc.location.coordinates,
     collapse_pct:   doc.collapse_pct,
     collapse_label: collapseLabel(doc.collapse_pct),
+    status:         doc.status || 'habilitado',
+    display_label:  displayLabel(doc.status, doc.collapse_pct),
     needs:          doc.needs,
   }));
 
@@ -239,7 +262,7 @@ router.get('/map', authMiddleware, async (req: Request, res: Response) => {
 router.get('/public/map', async (_req: Request, res: Response) => {
   const docs = await getCollection('collection_centers').find(
     { is_active: true },
-    { projection: { _id: 1, name: 1, location: 1, collapse_pct: 1, needs: 1, city: 1 } }
+    { projection: { _id: 1, name: 1, location: 1, collapse_pct: 1, status: 1, needs: 1, city: 1 } }
   ).limit(1000).toArray();
 
   const centers = docs.map((doc: any) => ({
@@ -249,6 +272,8 @@ router.get('/public/map', async (_req: Request, res: Response) => {
     city:           doc.location.city,
     collapse_pct:   doc.collapse_pct,
     collapse_label: collapseLabel(doc.collapse_pct),
+    status:         doc.status || 'habilitado',
+    display_label:  displayLabel(doc.status, doc.collapse_pct),
     needs:          doc.needs,
   }));
 
@@ -345,6 +370,36 @@ router.patch('/:id/collapse', authMiddleware, async (req: Request, res: Response
     message:        'Collapse status updated',
     collapse_pct:   parse.data.collapse_pct,
     collapse_label: collapseLabel(parse.data.collapse_pct),
+  });
+});
+
+// ─── PATCH /collection-centers/:id/status — quick update of operating status ─
+// Sets the center to habilitado / deshabilitado / tomado_por_gobierno.
+// Same open permission as editing and /collapse: any authenticated user can
+// report this, since it's community-maintained and status changes fast
+// during an emergency (e.g. a center suddenly seized or shut down).
+router.patch('/:id/status', authMiddleware, async (req: Request, res: Response) => {
+  const col = getCollection('collection_centers');
+  const doc = await col.findOne({ _id: req.params.id as any });
+  if (!doc) return res.status(404).json({ error: 'Collection center not found' });
+
+  const parse = z.object({ status: z.enum(CENTER_STATUSES) }).safeParse(req.body);
+  if (!parse.success) return res.status(400).json({ error: parse.error.flatten().fieldErrors });
+
+  const now = new Date();
+  await col.updateOne({ _id: req.params.id as any }, {
+    $set: {
+      status:         parse.data.status,
+      updated_at:     now,
+      last_edited_by: (req as any).deviceId,
+      last_edited_at: now,
+    },
+  });
+
+  return res.json({
+    message:        'Status updated',
+    status:          parse.data.status,
+    display_label:   displayLabel(parse.data.status, doc.collapse_pct ?? 0),
   });
 });
 
